@@ -1,0 +1,244 @@
+{
+  "trusted_certificates": [
+    {
+      "cert_hash": "ea40b45b42db0453b93390f21f45a442ceac10bf55d7bc124cdc3b045b7a5cfe",
+      "app_name": "Axis Mobile",
+      "package_name": "",
+      "issuer": "Verified Indian Banking App",
+      "source_file": "AXIS_BANK.json"
+    },
+    {
+      "cert_hash": "86734f0ce04de5bce31b1978b5dac7f938feecdfe01908f5a1ae3cdcceb43003",
+      "app_name": "bob World",
+      "package_name": "com.bankofbaroda.mconnect",
+      "issuer": "Verified Indian Banking App",
+      "source_file": "bob World.json"
+    },
+    {
+      "cert_hash": "018672474e1b89cfcef70ffd3f96ef40c2502ec7564213a072b62d7aabb962f9",
+      "app_name": "BOI Mobile",
+      "package_name": "com.boi.ua.android",
+      "issuer": "Verified Indian Banking App",
+      "source_file": "BOI Mobile.json"
+    },
+    {
+      "cert_hash": "cfe8e60dacd95c0ff2886231ef485d039aa3fee3483d33154631aba27327015a",
+      "app_name": "Canara ai1",
+      "package_name": "com.canarabank.mobility",
+      "issuer": "Verified Indian Banking App",
+      "source_file": "Canara ai1.json"
+    },
+    {
+      "cert_hash": "6df041f35eb58f4dc8c25d53de0cdb262b87793f60e215c9151197d0474d2289",
+      "app_name": "Cent Mobile",
+      "package_name": "com.infrasofttech.CentralBank",
+      "issuer": "Verified Indian Banking App",
+      "source_file": "Cent Mobile.json"
+    },
+    {
+      "cert_hash": "08a9fed58b03d77f20399c16a3166af92c69004c83c922cd8e6855941f2646e6",
+      "app_name": "CentPay",
+      "package_name": "",
+      "issuer": "Verified Indian Banking App",
+      "source_file": "CentPay.json"
+    },
+    {
+      "cert_hash": "49d3966f7f87191ab749b0a3ce872db03ec438bdd714985b0b4780a0eacbfce4",
+      "app_name": "CSBMobile+: Smart Banking",
+      "package_name": "",
+      "issuer": "Verified Indian Banking App",
+      "source_file": "CSB_MOBILE_BANK.json"
+    },
+    {
+      "cert_hash": "8eb7877cbdb47429f723adb098ff67cc7bed800881d98e80ee7ea243f7687a8a",
+      "app_name": "CUB mBank Plus",
+      "package_name": "",
+      "issuer": "Verified Indian Banking App",
+      "source_file": "CUB_BANK.json"
+    },
+    {
+      "cert_hash": "6815672a73258e116ac985e126e6266da50ad85aff1ea2cf5e8ac709fc08cdf8",
+      "app_name": "DCB Bank",
+      "package_name": "",
+      "issuer": "Verified Indian Banking App",
+      "source_file": "DCB_BANK.json"
+    },
+    {
+      "cert_hash": "cb6c72c9a8616adcf45bfd71c67b77a76d613aa6cfd35f0489f9bf773fe7c407",
+      "app_name": "DhanSmart-5x",
+      "package_name": "",
+      "issuer": "Verified Indian Banking App",
+      "source_file": "DHAN_SMART_BANK.json"
+    },
+    {
+      "cert_hash": "86a36d957be241aeed01c87b2280ecce09b9d826bda310447866dd2536f9e60c",
+      "app_name": "FedMobile",
+      "package_name": "",
+      "issuer": "Verified Indian Banking App",
+      "source_file": "FEDERAL_BANK.json"
+    },
+    {
+      "cert_hash": "82b9061e55cc897c167538138dbe69f9b2bfd92d1abd42cecc166aa42b321fd9",
+      "app_name": "HDFC Bank",
+      "package_name": "",
+      "issuer": "Verified Indian Banking App",
+      "source_file": "HDFC_BANK.json"
+    },
+    {
+      "cert_hash": "c204492d7445d35231b2cf32b4f0693bb14cd648bf973ac912a2c13d230d4efc",
+      "app_name": "iMobile",
+      "package_name": "",
+      "issuer": "Verified Indian Banking App",
+      "source_file": "ICICI_BANK.json"
+    },
+    {
+      "cert_hash": "83159a7514696a05b68cad09b7e9ef109452a76ddf98555129633ee758665897",
+      "app_name": "IDBI Bank",
+      "package_name": "",
+      "issuer": "Verified Indian Banking App",
+      "source_file": "IDBI_BANK.json"
+    },
+    {
+      "cert_hash": "ed0ace4164b34f002e30fc6da5e0c554d1609d78d66a1c0bf201385091b4149a",
+      "app_name": "IndSMART",
+      "package_name": "com.iexceed.ib.digitalbankingprod",
+      "issuer": "Verified Indian Banking App",
+      "source_file": "indSMART.json"
+    },
+    {
+      "cert_hash": "8fc4fa88da32c933463320e01d6d480c59b73785b6ec4fd6ea0724126f107601",
+      "app_name": "INDIE",
+      "package_name": "",
+      "issuer": "Verified Indian Banking App",
+      "source_file": "INDUSLAND_BANK.json"
+    },
+    {
+      "cert_hash": "df4334f6f01d47d5fc74795cb74357d508a7d9bbc2acc346b7a1ee9e63024604",
+      "app_name": "IOB Mobile",
+      "package_name": "com.fss.iob6",
+      "issuer": "Verified Indian Banking App",
+      "source_file": "IOB Mobile.json"
+    },
+    {
+      "cert_hash": "788ea1ab11d178153ea196b14923d3b93e4d362debf9e7b81d8b24f8c24ba4ab",
+      "app_name": "JKB mPay Delight+",
+      "package_name": "",
+      "issuer": "Verified Indian Banking App",
+      "source_file": "JKB_mPAY_BANK.json"
+    },
+    {
+      "cert_hash": "f37a829be7259e973d213228622c67219933d64df986d6b2d6f8957f8fe786af",
+      "app_name": "KBL Mobile Plus",
+      "package_name": "",
+      "issuer": "Verified Indian Banking App",
+      "source_file": "KBL_BANK.json"
+    },
+    {
+      "cert_hash": "2d3326a8a6efba13cc7f20f00fe3f0992ae0c7474eec846361cd0d902fd7c9f9",
+      "app_name": "Kotak811",
+      "package_name": "",
+      "issuer": "Verified Indian Banking App",
+      "source_file": "KOTAK811_BANK.json"
+    },
+    {
+      "cert_hash": "18c1269f43caa8ca40592a7b905b6de367b46ef49bbddd4a4a04ee24a3ceace7",
+      "app_name": "Kotak Bank",
+      "package_name": "",
+      "issuer": "Verified Indian Banking App",
+      "source_file": "KOTAK_BANK.json"
+    },
+    {
+      "cert_hash": "590fbe6ffea975edf509ec93d705c8c7f8c9f2ca957ddf1ff065fcb70e4f92ba",
+      "app_name": "KVB - DLite",
+      "package_name": "",
+      "issuer": "Verified Indian Banking App",
+      "source_file": "KVB_DLITE_BANK.json"
+    },
+    {
+      "cert_hash": "c592eb91208ac6d7e6ffb153eea57ecb226e535cd99ed3c01a353be5c738f309",
+      "app_name": "Mahamobile Plus",
+      "package_name": "com.kiya.mahaplus",
+      "issuer": "Verified Indian Banking App",
+      "source_file": "Mahamobile Plus.json"
+    },
+    {
+      "cert_hash": "a71cdc08b815178e4d2dd40119c05e2fb70ae36da39acaca36e0ab380875a6cb",
+      "app_name": "mBandhan",
+      "package_name": "",
+      "issuer": "Verified Indian Banking App",
+      "source_file": "mBandhan.json"
+    },
+    {
+      "cert_hash": "1cbed4340b882c4dd0292481f4c8b8bae532b3411761eed5124215e5a40086d0",
+      "app_name": "mBandhan",
+      "package_name": "",
+      "issuer": "Verified Indian Banking App",
+      "source_file": "mBANDHAN_BANK.json"
+    },
+    
+    {
+      "cert_hash": "cef2782b6a595a0d1934a7e614679f4d73feecf03ed6ba812c4f8ad607735ad9",
+      "app_name": "NAINI NEO",
+      "package_name": "",
+      "issuer": "Verified Indian Banking App",
+      "source_file": "NAINI_NEO_BANK.json"
+    },
+    {
+      "cert_hash": "cb31e6fd5e2a62d502e6b9be9c6f41d6314e5992a13a4bf8509ca0ffd0a046e0",
+      "app_name": "PNB ONE",
+      "package_name": "com.Version1",
+      "issuer": "Verified Indian Banking App",
+      "source_file": "PNB ONE.json"
+    },
+
+    {
+      "cert_hash": "cfdc2bc0c8df3b26fdd6dfbcddec3e00176983558a9443dadb47a9efe3a6e730",
+      "app_name": "PSB UnIC",
+      "package_name": "com.psb.omniretail",
+      "issuer": "Verified Indian Banking App",
+      "source_file": "PSB UnIC.json"
+    },
+    {
+      "cert_hash": "b6dfe1199373b3375452e39b25036483a4bb1b3a9a2380cac5640a4f554b964a",
+      "app_name": "RBL BizBank",
+      "package_name": "",
+      "issuer": "Verified Indian Banking App",
+      "source_file": "RBL_BIZ_BANK.json"
+    },
+    {
+      "cert_hash": "b059952fa1bdf42ad5be6c8e201714b490c1c943c0f4f70d675719e90e2ba5a4",
+      "app_name": "RBL MyBank",
+      "package_name": "",
+      "issuer": "Verified Indian Banking App",
+      "source_file": "RBL_MY_BANK.json"
+    },
+    {
+      "cert_hash": "109d4c51f6a34b979633f534d7247fc7b9fe10af336742384ba9c662a4f66382",
+      "app_name": "SIB Mirror+",
+      "package_name": "",
+      "issuer": "Verified Indian Banking App",
+      "source_file": "SIB_BANK.json"
+    },
+    {
+      "cert_hash": "1ee4e7d608cae3146bc539d9938b5a490c39e7500d25f80b34b71f54c4712b1c",
+      "app_name": "UCO mBanking Plus",
+      "package_name": "com.lcode.ucomobilebanking",
+      "issuer": "Verified Indian Banking App",
+      "source_file": "UCO mBanking Plus.json"
+    },
+    {
+      "cert_hash": "cbc0d5cf005cebb0af992ce5be4615d3f72a6e68a655dc20130dc4783e6f04a6",
+      "app_name": "Vyom",
+      "package_name": "com.infrasoft.uboi",
+      "issuer": "Verified Indian Banking App",
+      "source_file": "Vyom.json"
+    },
+    {
+      "cert_hash": "a054d56518f9a84f0af928b2ca8dd74211694069be15fa0ebc90707cb20c41c7",
+      "app_name": "IRIS by YES BANK",
+      "package_name": "",
+      "issuer": "Verified Indian Banking App",
+      "source_file": "YES_BANK.json"
+    }
+  ]
+}
