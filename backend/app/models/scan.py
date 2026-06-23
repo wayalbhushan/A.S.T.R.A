@@ -53,6 +53,10 @@ class ScanRecord(db.Model):
         onupdate=lambda: datetime.now(timezone.utc),
         nullable=False
     )
+    completed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), 
+        nullable=True
+    )
 
     # Relationships
     certificate: Mapped[Optional["CertificateRecord"]] = relationship(
@@ -73,6 +77,8 @@ class CertificateRecord(db.Model):
     cert_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     issuer: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     subject: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    scan_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    malicious_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), 
