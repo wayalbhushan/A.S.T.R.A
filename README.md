@@ -1,4 +1,4 @@
-# ASTRA — Android Static Threat Response & Analysis
+# ASTRA — Advanced System for Threat Response & Analysis
 
 ASTRA is an enterprise-grade security intelligence and threat analysis platform designed to detect, classify, and correlate malicious signatures inside Android Application Packages (APKs). Using static analysis, machine learning classifiers, VirusTotal AV intelligence, sandboxed dynamic behavior tracking, and cryptographic signature matching, ASTRA acts as a security operations center (SOC) cockpit for mobile endpoint threats.
 
