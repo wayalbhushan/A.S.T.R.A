@@ -11,46 +11,34 @@ The user interface follows strict QRadar, Splunk, and Grafana enterprise dark-th
 The following diagram illustrates the decoupled, multi-container workflow structure of the ASTRA platform:
 
 ```mermaid
-flowchart TD
-    subgraph Client Layer [Frontend Client]
-        FE[React + Vite Web UI]
-    end
+flowchart LR
+    %% Class definitions for styling
+    classDef client fill:#0f62fe,stroke:#0f62fe,color:#ffffff,stroke-width:2px;
+    classDef server fill:#262626,stroke:#525252,color:#f4f4f4,stroke-width:2px;
+    classDef cache fill:#009d9a,stroke:#009d9a,color:#ffffff,stroke-width:1px;
+    classDef broker fill:#da1e28,stroke:#da1e28,color:#ffffff,stroke-width:1px;
+    classDef database fill:#393939,stroke:#525252,color:#f4f4f4,stroke-width:1px;
+    classDef step fill:#161616,stroke:#525252,color:#c6c6c6,stroke-width:1px;
 
-    subgraph API Gateway & Routing [Backend Server]
-        NG[Reverse Proxy / Gunicorn] --> FL[Flask Core API]
-        FL --> PM[Prometheus Metrics Exporter]
-        FL --> LM[Rate Limiter Storage]
-    end
+    UI[React Web UI]:::client <-->|REST API / HTTPS| Flask[Flask API Server]:::server
+    
+    Flask <-->|Auth Validation / Cache Read| RedisCache[(Redis Cache & Limiter)]:::cache
+    Flask -->|Enqueue Scan| RedisBroker[(Redis Message Broker)]:::broker
+    
+    RedisBroker --> Worker[Celery Analysis Worker]:::server
+    Worker -->|Task Status Sync| RedisBroker
+    
+    Flask <-->|Transaction Logs & Stats| Postgres[(PostgreSQL DB)]:::database
+    Worker -->|Save Scan Details| Postgres
+    Worker -->|Write Completed Cache| RedisCache
 
-    subgraph Cache & Message Broker [Data Transit]
-        RD0[(Redis DB 0: Celery Broker)]
-        RD1[(Redis DB 1: Celery Backend)]
-        RD2[(Redis DB 2: API Cache & Limit Trackers)]
+    subgraph Async Analysis Pipeline
+        Worker --> AG[Androguard Static Parser]:::step
+        Worker --> ML[Random Forest Classifier]:::step
+        Worker --> VT[VirusTotal AV Client]:::step
+        Worker --> SB[Sandbox Behavior Tracker]:::step
+        Worker --> CR[Correlation Signal Engine]:::step
     end
-
-    subgraph Database Layer [Persistence]
-        PG[(PostgreSQL DB: Scan Records & Cert Tracking)]
-    end
-
-    subgraph Async Pipeline Workers [Celery Tasks]
-        CW[Celery Worker Service]
-        CW --> AG[Androguard Parser]
-        CW --> ML[Random Forest Classifier]
-        CW --> VT[VirusTotal Report API]
-        CW --> SB[Sandbox MITRE Severity Analyzer]
-        CW --> CR[Signal Correlation Engine]
-    end
-
-    %% Flow lines
-    FE <-->|HTTPS / REST API| GUR[Gunicorn Gateway]
-    GUR <--> FL
-    FL <-->|Auth Validate / Cache Read| RD2
-    FL <-->|Task Enqueue| RD0
-    CW <-->|Task Dequeue / Write| RD0
-    CW -->|Task Status Sync| RD1
-    FL <-->|Transaction Log Query| PG
-    CW <-->|Result Write| PG
-    CW <-->|Result Cache Set| RD2
 ```
 
 ---
@@ -63,46 +51,29 @@ Here is the sequence of events triggered when an analyst submits an APK for deep
 sequenceDiagram
     autonumber
     actor Analyst as Security Analyst
-    participant UI as React Frontend
-    participant API as Flask API
-    participant Broker as Redis Broker
-    participant Worker as Celery Worker
-    participant DB as PostgreSQL
-    participant Cache as Redis Cache
+    participant UI as React Web UI
+    participant API as Flask API Gateway
+    participant Celery as Celery Tasks & DB
 
-    Analyst->>UI: Upload APK & Select Scan Type (Quick/Deep)
-    UI->>API: POST /api/v1/scan/submit (Multipart payload)
+    Analyst->>UI: Submit APK file (Quick/Deep Scan)
+    UI->>API: POST /scan/submit (Multipart)
     Note over API: Verifies API Key & Rate Limits
-    API->>DB: Insert ScanRecord (Status: pending)
-    API->>Broker: Enqueue run_scan(scan_id, apk_path)
-    API-->>UI: Return 202 Queued (Scan ID)
-    
-    loop Every 3 Seconds
+    API->>Celery: Enqueue scan task & insert ScanRecord (pending)
+    API-->>UI: Return 202 Accepted (Scan ID)
+
+    loop 3s Status Polling
         UI->>API: GET /api/v1/scan/{id}/status
-        API->>Cache: Read Cache (scan:{id})
-        alt Cache Hit
-            Cache-->>API: Return complete
-            API-->>UI: Return redirect header
-        else Cache Miss
-            API->>DB: Query Scan status
-            DB-->>API: Return pending/processing
-            API-->>UI: Return current status
-        end
+        API-->>UI: Return status (pending / processing)
     end
 
-    activate Worker
-    Broker->>Worker: Trigger run_scan task
-    Worker->>DB: Update ScanRecord (Status: processing)
-    Worker->>Worker: Extract AndroidManifest, strings, certs (Androguard)
-    Worker->>Worker: Build 470-feature matrix & run Model Inference
-    Worker->>Worker: Query VirusTotal Hash report (if Deep Scan)
-    Worker->>Worker: Parse Sandbox process timeline & map MITRE Attacks
-    Worker->>Worker: Match certificate hashes in trusted DB (34 items)
-    Worker->>Worker: Run Signal Correlation (weight scores & verdict)
-    Worker->>DB: Update ScanRecord (Status: complete, verdict, risk_score)
-    Worker->>DB: Increment CertificateRecord counts
-    Worker->>Cache: Set Cache scan:{id} (24 hour TTL)
-    deactivate Worker
+    Note over Celery: Worker runs static parse, ML inference,<br/>VirusTotal, and Sandbox checks
+    Celery->>Celery: Save result to DB & cache in Redis (complete)
+
+    UI->>API: GET /api/v1/scan/{id}/status
+    API-->>UI: Return status (complete)
+    UI->>API: GET /api/v1/scan/{id} (Fetch Report)
+    API-->>UI: Return full JSON report payload
+    UI->>Analyst: Render dashboard metrics, SHAP graphs, and IOCs
 ```
 
 ---
