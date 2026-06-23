@@ -61,6 +61,15 @@ def create_app(config_name: str = None) -> Flask:
     # Initialize Celery
     celery_init_app(app)
 
+    # Register the API blueprint (Task 5)
+    from app.api.routes import api_bp
+    app.register_blueprint(api_bp, url_prefix='/api/v1')
+
+    # Add Prometheus metrics after app creation (Task 5)
+    from prometheus_flask_exporter import PrometheusMetrics
+    metrics = PrometheusMetrics(app)
+    metrics.info('astra_app_info', 'ASTRA Application', version='1.0.0')
+
     # Health check endpoint (checks PostgreSQL & Redis connection as requested)
     @app.route('/health')
     def health():

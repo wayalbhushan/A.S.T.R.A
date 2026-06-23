@@ -8,12 +8,12 @@ from celery import Celery, Task
 # Database extensions
 db = SQLAlchemy()
 migrate = Migrate()
+celery = Celery()
 
 # Rate limiting
 limiter = Limiter(
     key_func=get_remote_address,
-    default_limits=["100 per hour"],
-    storage_uri="redis://redis:6379/2"  # Fallback/default storage for limiter
+    default_limits=["200 per day", "50 per hour"]
 )
 
 # Redis cache client initialized globally
@@ -30,11 +30,12 @@ def celery_init_app(app) -> Celery:
             with app.app_context():
                 return self.run(*args, **kwargs)
 
-    celery_app = Celery(app.name, task_cls=FlaskTask)
-    celery_app.config_from_object(app.config.get("CELERY", {}))
-    celery_app.set_default()
-    app.extensions["celery"] = celery_app
-    return celery_app
+    celery.main = app.name
+    celery.task_cls = FlaskTask
+    celery.config_from_object(app.config.get("CELERY", {}))
+    celery.set_default()
+    app.extensions["celery"] = celery
+    return celery
 
 
 def init_extensions(app):
@@ -45,7 +46,12 @@ def init_extensions(app):
     # Migration initialization
     migrate.init_app(app, db)
     
-    # Limiter initialization
+    # Configure Limiter storage dynamically from REDIS_URL (Task 5)
+    import os
+    if "REDIS_URL" not in app.config:
+        app.config["REDIS_URL"] = os.environ.get("REDIS_URL", app.config.get("CACHE_REDIS_URL", "redis://redis:6379/2"))
+    
+    limiter.storage_uri = app.config["REDIS_URL"]
     limiter.init_app(app)
     
     # Re-initialize Redis client connection pool using the CACHE_REDIS_URL
