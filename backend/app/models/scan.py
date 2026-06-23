@@ -65,6 +65,45 @@ class ScanRecord(db.Model):
         foreign_keys=[cert_hash]
     )
 
+    def __init__(
+        self,
+        id: uuid.UUID,
+        file_name: str,
+        file_hash: str,
+        status: str = "pending",
+        package_name: Optional[str] = None,
+        risk_score: Optional[int] = None,
+        verdict: Optional[str] = None,
+        ml_class: Optional[str] = None,
+        ml_confidence: Optional[float] = None,
+        signature_verdict: Optional[str] = None,
+        vt_detection_ratio: Optional[str] = None,
+        androguard_data: Optional[dict] = None,
+        vt_data: Optional[dict] = None,
+        sandbox_data: Optional[dict] = None,
+        ml_explanation: Optional[dict] = None,
+        cert_hash: Optional[str] = None,
+        completed_at: Optional[datetime] = None
+    ) -> None:
+        """Constructs a ScanRecord instance."""
+        self.id = id
+        self.file_name = file_name
+        self.file_hash = file_hash
+        self.status = status
+        self.package_name = package_name
+        self.risk_score = risk_score
+        self.verdict = verdict
+        self.ml_class = ml_class
+        self.ml_confidence = ml_confidence
+        self.signature_verdict = signature_verdict
+        self.vt_detection_ratio = vt_detection_ratio
+        self.androguard_data = androguard_data
+        self.vt_data = vt_data
+        self.sandbox_data = sandbox_data
+        self.ml_explanation = ml_explanation
+        self.cert_hash = cert_hash
+        self.completed_at = completed_at
+
     def __repr__(self) -> str:
         return f"<ScanRecord id={self.id} file={self.file_name} status={self.status}>"
 
@@ -92,6 +131,21 @@ class CertificateRecord(db.Model):
         back_populates="certificate",
         foreign_keys=[ScanRecord.cert_hash]
     )
+
+    def __init__(
+        self,
+        cert_hash: str,
+        issuer: Optional[str] = None,
+        subject: Optional[str] = None,
+        scan_count: int = 0,
+        malicious_count: int = 0
+    ) -> None:
+        """Constructs a CertificateRecord instance."""
+        self.cert_hash = cert_hash
+        self.issuer = issuer
+        self.subject = subject
+        self.scan_count = scan_count
+        self.malicious_count = malicious_count
 
     def __repr__(self) -> str:
         return f"<CertificateRecord hash={self.cert_hash} issuer={self.issuer}>"
