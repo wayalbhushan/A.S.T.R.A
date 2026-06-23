@@ -70,6 +70,10 @@ def create_app(config_name: str = None) -> Flask:
     metrics = PrometheusMetrics(app)
     metrics.info('astra_app_info', 'ASTRA Application', version='1.0.0')
 
+    # CORS Middleware to handle cross-origin requests locally
+    from flask_cors import CORS
+    CORS(app, origins=["http://localhost:5173", "http://localhost:5000"])
+
     # Health check endpoint (checks PostgreSQL & Redis connection as requested)
     @app.route('/health')
     def health():
