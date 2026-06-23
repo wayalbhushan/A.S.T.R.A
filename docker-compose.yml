@@ -1,13 +1,11 @@
-version: '3.8'
-
 services:
   db:
     image: postgres:16-alpine
     container_name: astra_db
     environment:
+      POSTGRES_DB: astra
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: astra
     ports:
       - "5432:5432"
     volumes:
@@ -15,7 +13,6 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
-      timeout: 5s
       retries: 10
     restart: unless-stopped
 
@@ -24,67 +21,46 @@ services:
     container_name: astra_redis
     ports:
       - "6379:6379"
-    volumes:
-      - redisdata:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
+      interval: 3s
       retries: 5
     restart: unless-stopped
 
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    build: ./backend
     container_name: astra_backend
-    command: flask run --host=0.0.0.0 --port=5000
     ports:
       - "5000:5000"
-    volumes:
-      - ./backend:/app
-      - ./uploads:/app/uploads
-    environment:
-      - FLASK_ENV=development
-      - FLASK_APP=run.py
-      - SECRET_KEY=dev-secret-key-change-in-prod
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/astra
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/1
-      - CACHE_REDIS_URL=redis://redis:6379/2
-      - UPLOAD_FOLDER=/app/uploads
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - uploads:/app/uploads
+    env_file:
+      - .env
+    command: python run.py
     restart: unless-stopped
 
   celery_worker:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    build: ./backend
     container_name: astra_celery_worker
-    command: celery -A celery_worker.celery_app worker --loglevel=info
-    volumes:
-      - ./backend:/app
-      - ./uploads:/app/uploads
-    environment:
-      - FLASK_ENV=development
-      - FLASK_APP=run.py
-      - SECRET_KEY=dev-secret-key-change-in-prod
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/astra
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/1
-      - CACHE_REDIS_URL=redis://redis:6379/2
-      - UPLOAD_FOLDER=/app/uploads
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - uploads:/app/uploads
+    env_file:
+      - .env
+    command: celery -A celery_worker.celery_app worker --loglevel=info --concurrency=2
     restart: unless-stopped
 
 volumes:
   pgdata:
-  redisdata:
+  uploads:
