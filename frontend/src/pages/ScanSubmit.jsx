@@ -43,7 +43,7 @@ export default function ScanSubmit() {
         clearInterval(pollRef.current)
         setError('Polling failed. Check your API server connection.')
       }
-    }, 3000)
+    }, 5000)
   }
 
   const handleSubmit = async () => {

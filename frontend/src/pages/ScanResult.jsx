@@ -60,11 +60,35 @@ export default function ScanResult() {
 
   // Defensive Helpers to extract values from both Cached and Raw DB models
   const getSignals = (data) => {
-    if (data.signal_scores) return data.signal_scores
+    if (data.signal_scores) {
+      const scores = { ...data.signal_scores }
+      if (scores.static_ml_score === undefined || scores.static_ml_score === null) {
+        const static_ml = data.static_ml_result
+        if (static_ml) {
+          scores.static_ml_score = static_ml.class_name === "Goodware"
+            ? (1.0 - static_ml.confidence) * 100.0
+            : static_ml.confidence * 100.0
+        } else {
+          scores.static_ml_score = 0.0
+        }
+      }
+      if (scores.dynamic_ml_score === undefined || scores.dynamic_ml_score === null) {
+        scores.dynamic_ml_score = scores.ml_score !== undefined ? scores.ml_score : 0.0
+      }
+      return scores
+    }
+    
+    const static_ml = data.static_ml_result
+    let static_ml_score = 0.0
+    if (static_ml) {
+      static_ml_score = static_ml.class_name === "Goodware"
+        ? (1.0 - static_ml.confidence) * 100.0
+        : static_ml.confidence * 100.0
+    }
     
     const ml_confidence = data.ml_confidence || 0
     const ml_family = data.ml_class || "Benign"
-    const ml_score = ml_family === "Benign" ? (1.0 - ml_confidence) * 100 : ml_confidence * 100
+    const dynamic_ml_score = ml_family === "Benign" ? (1.0 - ml_confidence) * 100 : ml_confidence * 100
     
     const vt_data = data.vt_data || {}
     let vt_score = 50
@@ -84,7 +108,7 @@ export default function ScanResult() {
     const signature_verdict = data.signature_verdict
     const signature_score = signature_verdict === "TRUSTED" ? 0.0 : (signature_verdict === "SUSPICIOUS" ? 80.0 : 40.0)
     
-    return { ml_score, vt_score, sandbox_score, signature_score }
+    return { static_ml_score, dynamic_ml_score, vt_score, sandbox_score, signature_score }
   }
 
   const getThreatSummary = (data) => {
@@ -202,31 +226,44 @@ export default function ScanResult() {
                 ['File Name', result.file_name],
                 ['Package', result.package_name || '—'],
                 ['SHA-256', result.apk_hash ? (result.apk_hash.substring(0, 32) + '...') : '—'],
-                ['ML Classification', result.ml_class || '—'],
-                ['Confidence', result.ml_confidence ? `${(result.ml_confidence * 100).toFixed(1)}%` : '—'],
+                ['Static ML', result.static_ml_result?.class_name || '—'],
+                ['Static Confidence', result.static_ml_result?.confidence !== undefined && result.static_ml_result?.confidence !== null ? `${(result.static_ml_result.confidence * 100).toFixed(1)}%` : '—'],
+                ['Dynamic ML', result.ml_class || '—'],
+                ['Dynamic Confidence', result.ml_confidence !== undefined && result.ml_confidence !== null ? `${(result.ml_confidence * 100).toFixed(1)}%` : '—'],
                 ['Signature', result.signature_verdict || '—'],
                 ['VT Detection', result.vt_detection_ratio || '—'],
-              ].map(([label, value]) => (
-                <tr key={label}>
-                  <td style={{
-                    padding: '6px 0',
-                    fontSize: '12px',
-                    color: 'var(--text-secondary)',
-                    width: '140px',
-                    verticalAlign: 'top',
-                  }}>
-                    {label}
-                  </td>
-                  <td className="mono" style={{
-                    padding: '6px 0',
-                    fontSize: '13px',
-                    color: 'var(--text-primary)',
-                    wordBreak: 'break-all',
-                  }}>
-                    {value}
-                  </td>
-                </tr>
-              ))}
+                ['Model Agreement', result.model_agreement || '—'],
+              ].map(([label, value]) => {
+                let cellColor = 'var(--text-primary)';
+                if (label === 'Model Agreement') {
+                  const val = String(value).toUpperCase();
+                  if (val === 'BOTH_BENIGN') cellColor = 'var(--success)';
+                  else if (val === 'BOTH_MALICIOUS') cellColor = 'var(--danger)';
+                  else if (val === 'DISAGREEMENT') cellColor = 'var(--warning)';
+                  else cellColor = 'var(--text-secondary)';
+                }
+                return (
+                  <tr key={label}>
+                    <td style={{
+                      padding: '6px 0',
+                      fontSize: '12px',
+                      color: 'var(--text-secondary)',
+                      width: '140px',
+                      verticalAlign: 'top',
+                    }}>
+                      {label}
+                    </td>
+                    <td className="mono" style={{
+                      padding: '6px 0',
+                      fontSize: '13px',
+                      color: cellColor,
+                      wordBreak: 'break-all',
+                    }}>
+                      {value}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -250,13 +287,14 @@ export default function ScanResult() {
       {/* Signal scores */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(4, 1fr)',
+        gridTemplateColumns: 'repeat(5, 1fr)',
         gap: '1px',
         background: 'var(--border)',
         marginBottom: '24px',
       }}>
         {[
-          ['ML Score', signals.ml_score, Cpu],
+          ['Static ML Score', signals.static_ml_score, Cpu],
+          ['Dynamic ML Score', signals.dynamic_ml_score, Cpu],
           ['VT Score', signals.vt_score, Globe],
           ['Sandbox', signals.sandbox_score, AlertTriangle],
           ['Signature', signals.signature_score, Lock],
@@ -311,15 +349,46 @@ export default function ScanResult() {
         ))}
       </div>
 
-      {/* Two column: SHAP features + MITRE */}
+      {/* Model Agreement Banner */}
+      {result.model_agreement && result.model_agreement !== 'UNKNOWN' && (
+        <div style={{
+          background: 'var(--bg-elevated)',
+          border: '1px solid var(--border)',
+          borderLeft: `3px solid ${
+            result.model_agreement === 'BOTH_BENIGN'
+              ? 'var(--success)'
+              : result.model_agreement === 'BOTH_MALICIOUS'
+                ? 'var(--danger)'
+                : 'var(--warning)'
+          }`,
+          padding: '12px 16px',
+          marginBottom: '16px',
+          fontSize: '13px',
+          color: 'var(--text-primary)',
+        }}>
+          {result.model_agreement === 'BOTH_BENIGN' && (
+            `Both ML models agree: application is benign (Static: Goodware, Dynamic: ${result.ml_class || 'Benign'})`
+          )}
+          {result.model_agreement === 'BOTH_MALICIOUS' && (
+            `Both ML models flag this as malicious (Static: Malware, Dynamic: ${result.ml_class || 'Benign'})`
+          )}
+          {result.model_agreement === 'DISAGREEMENT' && (
+            `ML models disagree — manual review recommended (Static: ${
+              result.static_ml_result?.class_name || 'Unknown'
+            }, Dynamic: ${result.ml_class || 'Benign'}). VT and sandbox signals are the tiebreaker.`
+          )}
+        </div>
+      )}
+
+      {/* Three column: SHAP features + Static SHAP + MITRE */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: '1fr 1fr',
+        gridTemplateColumns: '1fr 1fr 1fr',
         gap: '16px',
         marginBottom: '16px',
       }}>
 
-        {/* SHAP top features */}
+        {/* Dynamic SHAP top features */}
         <div style={{
           background: 'var(--bg-secondary)',
           border: '1px solid var(--border)',
@@ -327,13 +396,23 @@ export default function ScanResult() {
           <div style={{
             padding: '10px 16px',
             borderBottom: '1px solid var(--border)',
-            fontSize: '12px',
-            color: 'var(--text-secondary)',
-            letterSpacing: '0.32px',
-            textTransform: 'uppercase',
-            fontWeight: 600,
           }}>
-            ML Feature Explanation (SHAP)
+            <div style={{
+              fontSize: '12px',
+              color: 'var(--text-secondary)',
+              letterSpacing: '0.32px',
+              textTransform: 'uppercase',
+              fontWeight: 600,
+            }}>
+              Dynamic ML — SHAP Feature Explanation
+            </div>
+            <div style={{
+              fontSize: '11px',
+              color: 'var(--text-secondary)',
+              marginTop: '2px',
+            }}>
+              Top syscall/binder features driving the dynamic classification
+            </div>
           </div>
           <div style={{ padding: '0' }}>
             {topFeatures.length === 0 ? (
@@ -359,6 +438,7 @@ export default function ScanResult() {
                   fontSize: '12px',
                   color: 'var(--text-primary)',
                   flex: 1,
+                  wordBreak: 'break-all',
                 }}>
                   {f.feature}
                 </span>
@@ -370,6 +450,78 @@ export default function ScanResult() {
                   fontWeight: 600,
                   textTransform: 'uppercase',
                   letterSpacing: '0.16px',
+                  marginLeft: '8px',
+                }}>
+                  {f.direction === 'increases_risk' ? '▲' : '▼'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Static ML top features */}
+        <div style={{
+          background: 'var(--bg-secondary)',
+          border: '1px solid var(--border)',
+        }}>
+          <div style={{
+            padding: '10px 16px',
+            borderBottom: '1px solid var(--border)',
+          }}>
+            <div style={{
+              fontSize: '12px',
+              color: 'var(--text-secondary)',
+              letterSpacing: '0.32px',
+              textTransform: 'uppercase',
+              fontWeight: 600,
+            }}>
+              Static ML — Permission Risk Factors
+            </div>
+            <div style={{
+              fontSize: '11px',
+              color: 'var(--text-secondary)',
+              marginTop: '2px',
+            }}>
+              Top permissions/API calls driving the static classification
+            </div>
+          </div>
+          <div style={{ padding: '0' }}>
+            {(!result.static_ml_result?.top_features || result.static_ml_result.top_features.length === 0) ? (
+              <div style={{
+                padding: '16px',
+                color: 'var(--text-placeholder)',
+                fontSize: '13px',
+              }}>
+                No static SHAP data available
+              </div>
+            ) : result.static_ml_result.top_features.map((f, i) => (
+              <div
+                key={i}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '8px 16px',
+                  borderBottom: '1px solid var(--border-subtle)',
+                }}
+              >
+                <span className="mono" style={{
+                  fontSize: '12px',
+                  color: 'var(--text-primary)',
+                  flex: 1,
+                  wordBreak: 'break-all',
+                }}>
+                  {f.feature}
+                </span>
+                <span style={{
+                  fontSize: '11px',
+                  color: f.direction === 'increases_risk'
+                    ? 'var(--danger)'
+                    : 'var(--success)',
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.16px',
+                  marginLeft: '8px',
                 }}>
                   {f.direction === 'increases_risk' ? '▲' : '▼'}
                 </span>
