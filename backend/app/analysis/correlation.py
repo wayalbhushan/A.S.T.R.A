@@ -9,9 +9,10 @@ import structlog
 logger = structlog.get_logger()
 
 # Constants
-ML_WEIGHT = 0.35
-VT_WEIGHT = 0.30
-SANDBOX_WEIGHT = 0.20
+STATIC_ML_WEIGHT = 0.25
+DYNAMIC_ML_WEIGHT = 0.25
+VT_WEIGHT = 0.20
+SANDBOX_WEIGHT = 0.15
 SIGNATURE_WEIGHT = 0.15
 
 
@@ -77,6 +78,7 @@ def build_threat_summary(
 def correlate(
     androguard_data: dict,
     ml_result: dict,
+    static_ml_result: dict,
     vt_report: dict,
     sandbox_report: dict,
     signature_verdict: str
@@ -86,6 +88,7 @@ def correlate(
     Args:
         androguard_data: Dict returned by Androguard static analyzer.
         ml_result: Dict returned by the ML model inference engine.
+        static_ml_result: Dict returned by the static RF model inference engine.
         vt_report: Dict returned by the VirusTotal AV query.
         sandbox_report: Dict returned by the VirusTotal sandbox behavior query.
         signature_verdict: String verdict matching "TRUSTED", "UNKNOWN", or "SUSPICIOUS".
@@ -95,15 +98,23 @@ def correlate(
     """
     logger.info("Starting signal correlation engine")
 
-    # 1. ML Sub-score calculation
+    # 1. Static ML Sub-score calculation
+    static_ml_confidence = static_ml_result.get("confidence", 0.0)
+    static_ml_class = static_ml_result.get("class_name", "Goodware")
+    if static_ml_class == "Goodware":
+        static_ml_score = (1.0 - static_ml_confidence) * 100.0
+    else:
+        static_ml_score = static_ml_confidence * 100.0
+
+    # 2. Dynamic ML Sub-score calculation
     ml_confidence = ml_result.get("confidence", 0.0)
     ml_family = ml_result.get("class_name", "Benign")
     if ml_family == "Benign":
-        ml_score = (1.0 - ml_confidence) * 100.0
+        dynamic_ml_score = (1.0 - ml_confidence) * 100.0
     else:
-        ml_score = ml_confidence * 100.0
+        dynamic_ml_score = ml_confidence * 100.0
 
-    # 2. VirusTotal AV Sub-score calculation
+    # 3. VirusTotal AV Sub-score calculation
     if not vt_report.get("found"):
         vt_score = 50.0  # Unknown, default to neutral risk
     else:
@@ -118,11 +129,11 @@ def correlate(
         else:
             vt_score = (malicious / total) * 100.0
 
-    # 3. Sandbox Sub-score calculation
+    # 4. Sandbox Sub-score calculation
     severity_score = sandbox_report.get("severity_score", 0)
     sandbox_score = min(severity_score * 10.0, 100.0)
 
-    # 4. Signature Sub-score calculation
+    # 5. Signature Sub-score calculation
     if signature_verdict == "TRUSTED":
         signature_score = 0.0
     elif signature_verdict == "SUSPICIOUS":
@@ -130,16 +141,17 @@ def correlate(
     else:
         signature_score = 40.0  # UNKNOWN default
 
-    # 5. Final Risk Score Computation
+    # 6. Final Risk Score Computation
     risk_score = (
-        ml_score * ML_WEIGHT +
+        static_ml_score * STATIC_ML_WEIGHT +
+        dynamic_ml_score * DYNAMIC_ML_WEIGHT +
         vt_score * VT_WEIGHT +
         sandbox_score * SANDBOX_WEIGHT +
         signature_score * SIGNATURE_WEIGHT
     )
     risk_score = round(risk_score, 1)
 
-    # 6. Verdict Determination
+    # 7. Verdict Determination
     if risk_score >= 70.0:
         verdict = "MALICIOUS"
     elif risk_score >= 40.0:
@@ -149,9 +161,11 @@ def correlate(
     else:
         verdict = "CLEAN"
 
-    # 7. Confidence Level Agreement Counting (score > 50 flags malicious)
+    # 8. Confidence Level Agreement Counting (score > 50 flags malicious)
     flagged_signals = 0
-    if ml_score > 50.0:
+    if static_ml_score > 50.0:
+        flagged_signals += 1
+    if dynamic_ml_score > 50.0:
         flagged_signals += 1
     if vt_score > 50.0:
         flagged_signals += 1
@@ -160,7 +174,7 @@ def correlate(
     if signature_score > 50.0:
         flagged_signals += 1
 
-    if flagged_signals == 4:
+    if flagged_signals >= 4:
         confidence_level = "HIGH"
     elif flagged_signals == 3:
         confidence_level = "MEDIUM"
@@ -169,7 +183,17 @@ def correlate(
     else:
         confidence_level = "INSUFFICIENT DATA"
 
-    # 8. IOC Extraction
+    # Model agreement determination
+    static_is_malicious = static_ml_class == "Malware"
+    dynamic_is_malicious = ml_family != "Benign"
+    if static_is_malicious and dynamic_is_malicious:
+        model_agreement = "BOTH_MALICIOUS"
+    elif not static_is_malicious and not dynamic_is_malicious:
+        model_agreement = "BOTH_BENIGN"
+    else:
+        model_agreement = "DISAGREEMENT"
+
+    # 9. IOC Extraction
     processes = sandbox_report.get("processes_created", [])
     c2_ips = extract_c2_ips(processes)
     
@@ -183,7 +207,7 @@ def correlate(
         "engine_detections": vt_report.get("engine_verdicts", [])
     }
 
-    # 9. Dynamic Threat Summary
+    # 10. Dynamic Threat Summary
     threat_summary = build_threat_summary(
         verdict, 
         risk_score, 
@@ -201,7 +225,8 @@ def correlate(
         "verdict": verdict,
         "confidence_level": confidence_level,
         "signal_scores": {
-            "ml_score": round(float(ml_score), 2),
+            "static_ml_score": round(float(static_ml_score), 2),
+            "dynamic_ml_score": round(float(dynamic_ml_score), 2),
             "vt_score": round(float(vt_score), 2),
             "sandbox_score": round(float(sandbox_score), 2),
             "signature_score": round(float(signature_score), 2)
@@ -213,5 +238,9 @@ def correlate(
         "iocs": iocs,
         "dangerous_permissions": androguard_data.get("dangerous_permissions", []),
         "sensitive_apis": androguard_data.get("sensitive_apis", []),
-        "threat_summary": threat_summary
+        "threat_summary": threat_summary,
+        "model_agreement": model_agreement,
+        "static_ml_result": static_ml_result,
+        "static_ml_score": round(float(static_ml_score), 2),
+        "dynamic_ml_score": round(float(dynamic_ml_score), 2)
     }

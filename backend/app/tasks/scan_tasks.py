@@ -12,8 +12,8 @@ import structlog
 
 from app.extensions import celery, db, redis_client
 from app.models.scan import ScanRecord, CertificateRecord
-from app.analysis.androguard_extractor import extract
-from app.analysis.ml_engine import predict, feature_names
+from app.analysis.androguard_extractor import extract, extract_static_features
+from app.analysis.ml_engine import predict, feature_names, predict_static, static_feature_names
 from app.analysis.vt_client import get_file_report, get_sandbox_report, submit_file
 from app.analysis.correlation import correlate
 from app.analysis.cert_lookup import lookup
@@ -51,6 +51,16 @@ def run_scan(self, scan_id: str, apk_path: str, scan_type: str = "deep"):
         cert_result = lookup(cert_hash)
         signature_verdict = cert_result["verdict"]
         logger.info("cert_lookup_complete", scan_id=scan_id, verdict=signature_verdict)
+
+        # Step 3.5: Static ML classification
+        static_feature_vector = extract_static_features(
+            apk_path, static_feature_names
+        )
+        static_ml_result = predict_static(static_feature_vector)
+        logger.info("static_ml_complete",
+                    scan_id=scan_id,
+                    class_name=static_ml_result["class_name"],
+                    confidence=static_ml_result["confidence"])
 
         # Step 4: ML classification (Task 2)
         feature_vector = {name: 0 for name in feature_names}
@@ -136,6 +146,7 @@ def run_scan(self, scan_id: str, apk_path: str, scan_type: str = "deep"):
         final_result = correlate(
             androguard_data=androguard_data,
             ml_result=ml_result,
+            static_ml_result=static_ml_result,
             vt_report=vt_report,
             sandbox_report=sandbox_report,
             signature_verdict=signature_verdict
@@ -192,6 +203,8 @@ def run_scan(self, scan_id: str, apk_path: str, scan_type: str = "deep"):
             record.verdict = final_result["verdict"]
             record.ml_class = final_result["malware_family"]
             record.ml_confidence = final_result["ml_confidence"]
+            record.static_ml_class = static_ml_result["class_name"]
+            record.static_ml_confidence = static_ml_result["confidence"]
             record.signature_verdict = signature_verdict
             record.vt_detection_ratio = vt_report.get("detection_ratio", "0/0")
             record.androguard_data = androguard_data
@@ -223,6 +236,7 @@ def run_scan(self, scan_id: str, apk_path: str, scan_type: str = "deep"):
             "ml_explanation": record.ml_explanation,
             "mitre_attacks": final_result["mitre_attacks"],
             "iocs": final_result["iocs"],
+            "static_ml_result": static_ml_result,
             "dangerous_permissions": final_result["dangerous_permissions"],
             "sensitive_apis": final_result["sensitive_apis"],
             "vt_detection_ratio": record.vt_detection_ratio,

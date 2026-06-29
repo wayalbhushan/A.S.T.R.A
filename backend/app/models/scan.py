@@ -25,6 +25,8 @@ class ScanRecord(db.Model):
     # ML specific fields
     ml_class: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     ml_confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    static_ml_class: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    static_ml_confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     
     # Signatures and external APIs
     signature_verdict: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
@@ -76,6 +78,8 @@ class ScanRecord(db.Model):
         verdict: Optional[str] = None,
         ml_class: Optional[str] = None,
         ml_confidence: Optional[float] = None,
+        static_ml_class: Optional[str] = None,
+        static_ml_confidence: Optional[float] = None,
         signature_verdict: Optional[str] = None,
         vt_detection_ratio: Optional[str] = None,
         androguard_data: Optional[dict] = None,
@@ -95,6 +99,8 @@ class ScanRecord(db.Model):
         self.verdict = verdict
         self.ml_class = ml_class
         self.ml_confidence = ml_confidence
+        self.static_ml_class = static_ml_class
+        self.static_ml_confidence = static_ml_confidence
         self.signature_verdict = signature_verdict
         self.vt_detection_ratio = vt_detection_ratio
         self.androguard_data = androguard_data

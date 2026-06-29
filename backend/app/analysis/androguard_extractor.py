@@ -228,3 +228,51 @@ def extract(apk_path: str) -> dict:
         "high_entropy_string_count": high_entropy_count,
         "string_count": len(strings)
     }
+
+
+def extract_static_features(apk_path: str, static_feature_names: list) -> dict:
+    """Extract binary feature vector matching TUANDROMD format.
+    
+    Returns dict mapping each feature name to 0 or 1.
+    Used as input to the static ML model.
+    """
+    logger.info("Extracting static TUANDROMD features from APK", path=apk_path)
+    try:
+        a, d, dx = AnalyzeAPK(apk_path)
+        
+        # Extract permissions
+        raw_permissions = set(a.get_permissions())
+        permissions_short = set()
+        for p in raw_permissions:
+            p_clean = p
+            for prefix in ["android.permission.", "com.android.", "com.google.android."]:
+                if p_clean.startswith(prefix):
+                    p_clean = p_clean[len(prefix):]
+            permissions_short.add(p_clean.upper())
+
+        # Extract API calls using cross-references
+        api_calls_found = set()
+        for method in dx.get_methods():
+            for _, call, _ in method.get_xref_to():
+                sig = f"{call.class_name}->{call.name}"
+                api_calls_found.add(sig)
+
+        # Build binary feature vector
+        feature_vector = {}
+        for feature_name in static_feature_names:
+            if ";" not in feature_name and "/" not in feature_name:
+                feature_vector[feature_name] = (
+                    1 if feature_name in permissions_short else 0
+                )
+            elif "->" in feature_name and "L" in feature_name:
+                feature_vector[feature_name] = (
+                    1 if feature_name in api_calls_found else 0
+                )
+            else:
+                feature_vector[feature_name] = 0
+
+        return feature_vector
+
+    except Exception as e:
+        logger.warning("Androguard static feature extraction failed, returning zero vector", error=str(e))
+        return {name: 0 for name in static_feature_names}
