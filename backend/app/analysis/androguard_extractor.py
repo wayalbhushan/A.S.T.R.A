@@ -156,9 +156,21 @@ def extract(apk_path: str) -> dict:
 
     # 1. Base Metadata Extraction
     package_name = a.get_package()
-    app_name = a.get_app_name()
-    version_name = a.get_androidversion_name()
-    version_code = a.get_androidversion_code()
+    try:
+        app_name = a.get_app_name()
+    except Exception:
+        app_name = a.get_package() or "Unknown"
+
+    try:
+        version_name = a.get_androidversion_name()
+    except Exception:
+        version_name = "Unknown"
+
+    try:
+        version_code = a.get_androidversion_code()
+    except Exception:
+        version_code = "0"
+
     min_sdk = a.get_min_sdk_version()
     target_sdk = a.get_target_sdk_version()
 

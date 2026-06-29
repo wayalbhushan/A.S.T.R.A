@@ -19,21 +19,23 @@ from app.analysis.correlation import correlate
 from app.analysis.cert_lookup import lookup
 
 logger = structlog.get_logger()
-CACHE_TTL = 86400  # 24 hours (Task 2)
+CACHE_TTL = 86400  # 24 hours
 
 
 @celery.task(bind=True, max_retries=3, default_retry_delay=60)
 def run_scan(self, scan_id: str, apk_path: str, scan_type: str = "deep"):
     """Full async APK analysis pipeline.
-    
+
     Updates ScanRecord status throughout execution.
     """
     start_time = datetime.now(timezone.utc)
 
     try:
-        # Step 1: Update status to processing (Task 2)
+        # Step 1: Update status to processing
         with db.session() as session:
-            stmt = select(ScanRecord).where(ScanRecord.id == uuid.UUID(scan_id))
+            stmt = select(ScanRecord).where(
+                ScanRecord.id == uuid.UUID(scan_id)
+            )
             record = session.execute(stmt).scalar_one_or_none()
             if not record:
                 raise ValueError(f"ScanRecord {scan_id} not found")
@@ -42,11 +44,15 @@ def run_scan(self, scan_id: str, apk_path: str, scan_type: str = "deep"):
 
         logger.info("scan_started", scan_id=scan_id, scan_type=scan_type)
 
-        # Step 2: Static analysis (Task 2)
+        # Step 2: Static analysis
         androguard_data = extract(apk_path)
-        logger.info("static_analysis_complete", scan_id=scan_id, package=androguard_data.get("package_name"))
+        logger.info(
+            "static_analysis_complete",
+            scan_id=scan_id,
+            package=androguard_data.get("package_name")
+        )
 
-        # Step 3: Certificate lookup (Task 2)
+        # Step 3: Certificate lookup
         cert_hash = androguard_data.get("certificate", {}).get("cert_hash", "")
         cert_result = lookup(cert_hash)
         signature_verdict = cert_result["verdict"]
@@ -57,20 +63,20 @@ def run_scan(self, scan_id: str, apk_path: str, scan_type: str = "deep"):
             apk_path, static_feature_names
         )
         static_ml_result = predict_static(static_feature_vector)
-        logger.info("static_ml_complete",
-                    scan_id=scan_id,
-                    class_name=static_ml_result["class_name"],
-                    confidence=static_ml_result["confidence"])
+        logger.info(
+            "static_ml_complete",
+            scan_id=scan_id,
+            class_name=static_ml_result["class_name"],
+            confidence=static_ml_result["confidence"]
+        )
 
-        # Step 4: ML classification (Task 2)
+        # Step 4: Dynamic ML classification
         feature_vector = {name: 0 for name in feature_names}
 
-        # Map available static signals to known features
         androguard_permissions = androguard_data.get("permissions", [])
         dangerous_count = androguard_data.get("dangerous_count", 0)
         sensitive_api_count = androguard_data.get("sensitive_api_count", 0)
 
-        # Populate overlapping feature names where possible
         if "open" in feature_vector:
             feature_vector["open"] = len(androguard_data.get("activities", []))
         if "read" in feature_vector:
@@ -79,31 +85,41 @@ def run_scan(self, scan_id: str, apk_path: str, scan_type: str = "deep"):
             feature_vector["write"] = sensitive_api_count * 5
         if "getDeviceId" in feature_vector:
             feature_vector["getDeviceId"] = (
-                1 if "android.permission.READ_PHONE_STATE" in androguard_permissions else 0
+                1 if "android.permission.READ_PHONE_STATE"
+                in androguard_permissions else 0
             )
         if "sendTextMessage" in feature_vector:
             feature_vector["sendTextMessage"] = (
-                1 if "android.permission.SEND_SMS" in androguard_permissions else 0
+                1 if "android.permission.SEND_SMS"
+                in androguard_permissions else 0
             )
         if "READ_SMS____" in feature_vector:
             feature_vector["READ_SMS____"] = (
-                1 if "android.permission.READ_SMS" in androguard_permissions else 0
+                1 if "android.permission.READ_SMS"
+                in androguard_permissions else 0
             )
         if "SMS_SEND____" in feature_vector:
             feature_vector["SMS_SEND____"] = (
-                1 if "android.permission.SEND_SMS" in androguard_permissions else 0
+                1 if "android.permission.SEND_SMS"
+                in androguard_permissions else 0
             )
         if "ACCESS_PERSONAL_INFO___" in feature_vector:
             feature_vector["ACCESS_PERSONAL_INFO___"] = dangerous_count
         if "NETWORK_ACCESS____" in feature_vector:
             feature_vector["NETWORK_ACCESS____"] = (
-                1 if "android.permission.INTERNET" in androguard_permissions else 0
+                1 if "android.permission.INTERNET"
+                in androguard_permissions else 0
             )
 
         ml_result = predict(feature_vector)
-        logger.info("ml_classification_complete", scan_id=scan_id, class_name=ml_result["class_name"], confidence=ml_result["confidence"])
+        logger.info(
+            "ml_classification_complete",
+            scan_id=scan_id,
+            class_name=ml_result["class_name"],
+            confidence=ml_result["confidence"]
+        )
 
-        # Step 5: VirusTotal AV report (Task 2)
+        # Step 5: VirusTotal AV report
         apk_hash = androguard_data["apk_hash"]
         vt_report = get_file_report(apk_hash)
 
@@ -119,9 +135,14 @@ def run_scan(self, scan_id: str, apk_path: str, scan_type: str = "deep"):
                 "engine_verdicts": []
             }
 
-        logger.info("vt_report_fetched", scan_id=scan_id, found=vt_report.get("found"), ratio=vt_report.get("detection_ratio"))
+        logger.info(
+            "vt_report_fetched",
+            scan_id=scan_id,
+            found=vt_report.get("found"),
+            ratio=vt_report.get("detection_ratio")
+        )
 
-        # Step 6: Sandbox report (deep scan only) (Task 2)
+        # Step 6: Sandbox report (deep scan only)
         if scan_type == "deep":
             sandbox_report = get_sandbox_report(apk_hash)
         else:
@@ -140,9 +161,13 @@ def run_scan(self, scan_id: str, apk_path: str, scan_type: str = "deep"):
                 "has_file_activity": False
             }
 
-        logger.info("sandbox_report_fetched", scan_id=scan_id, sandbox_count=sandbox_report.get("sandbox_count", 0))
+        logger.info(
+            "sandbox_report_fetched",
+            scan_id=scan_id,
+            sandbox_count=sandbox_report.get("sandbox_count", 0)
+        )
 
-        # Step 7: Correlation (Task 2)
+        # Step 7: Correlation — combine all signals
         final_result = correlate(
             androguard_data=androguard_data,
             ml_result=ml_result,
@@ -152,15 +177,26 @@ def run_scan(self, scan_id: str, apk_path: str, scan_type: str = "deep"):
             signature_verdict=signature_verdict
         )
 
-        logger.info("correlation_complete", scan_id=scan_id, risk_score=final_result["risk_score"], verdict=final_result["verdict"])
+        logger.info(
+            "correlation_complete",
+            scan_id=scan_id,
+            risk_score=final_result["risk_score"],
+            verdict=final_result["verdict"]
+        )
 
-        # Step 8: Update or create CertificateRecord (Task 2)
+        # Step 8: Update or create CertificateRecord
         if cert_hash:
             with db.session() as session:
-                cert_stmt = select(CertificateRecord).where(CertificateRecord.cert_hash == cert_hash)
-                cert_record = session.execute(cert_stmt).scalar_one_or_none()
+                cert_stmt = select(CertificateRecord).where(
+                    CertificateRecord.cert_hash == cert_hash
+                )
+                cert_record = session.execute(
+                    cert_stmt
+                ).scalar_one_or_none()
 
-                is_malicious = final_result["verdict"] in ["MALICIOUS", "SUSPICIOUS"]
+                is_malicious = final_result["verdict"] in [
+                    "MALICIOUS", "SUSPICIOUS"
+                ]
 
                 if cert_record:
                     cert_record.scan_count += 1
@@ -168,8 +204,12 @@ def run_scan(self, scan_id: str, apk_path: str, scan_type: str = "deep"):
                         cert_record.malicious_count += 1
                     session.commit()
                 else:
-                    issuer = androguard_data.get("certificate", {}).get("issuer", "Unknown")
-                    subject = androguard_data.get("certificate", {}).get("subject", "Unknown")
+                    issuer = androguard_data.get(
+                        "certificate", {}
+                    ).get("issuer", "Unknown")
+                    subject = androguard_data.get(
+                        "certificate", {}
+                    ).get("subject", "Unknown")
                     cert_record = CertificateRecord(
                         cert_hash=cert_hash,
                         issuer=issuer,
@@ -183,18 +223,24 @@ def run_scan(self, scan_id: str, apk_path: str, scan_type: str = "deep"):
                         session.commit()
                     except IntegrityError:
                         session.rollback()
-                        cert_record = session.execute(cert_stmt).scalar_one_or_none()
+                        cert_record = session.execute(
+                            cert_stmt
+                        ).scalar_one_or_none()
                         if cert_record:
                             cert_record.scan_count += 1
                             if is_malicious:
                                 cert_record.malicious_count += 1
                             session.commit()
 
-        # Step 9: Update ScanRecord with all results (Task 2)
-        elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
+        # Step 9: Update ScanRecord with all results
+        elapsed = (
+            datetime.now(timezone.utc) - start_time
+        ).total_seconds()
 
         with db.session() as session:
-            stmt = select(ScanRecord).where(ScanRecord.id == uuid.UUID(scan_id))
+            stmt = select(ScanRecord).where(
+                ScanRecord.id == uuid.UUID(scan_id)
+            )
             record = session.execute(stmt).scalar_one_or_none()
 
             record.status = "complete"
@@ -206,44 +252,61 @@ def run_scan(self, scan_id: str, apk_path: str, scan_type: str = "deep"):
             record.static_ml_class = static_ml_result["class_name"]
             record.static_ml_confidence = static_ml_result["confidence"]
             record.signature_verdict = signature_verdict
-            record.vt_detection_ratio = vt_report.get("detection_ratio", "0/0")
+            record.vt_detection_ratio = vt_report.get(
+                "detection_ratio", "0/0"
+            )
             record.androguard_data = androguard_data
             record.vt_data = vt_report
             record.sandbox_data = sandbox_report
             record.ml_explanation = {
                 "top_features": ml_result.get("top_features", []),
-                "all_probabilities": ml_result.get("all_probabilities", {})
+                "all_probabilities": ml_result.get(
+                    "all_probabilities", {}
+                )
             }
             record.cert_hash = cert_hash or None
             record.package_name = androguard_data.get("package_name")
             record.completed_at = datetime.now(timezone.utc)
             session.commit()
 
-        # Step 10: Cache result in Redis (Task 2)
+            # Extract all values INSIDE session before it closes
+            r_file_name = record.file_name
+            r_package_name = record.package_name
+            r_ml_explanation = record.ml_explanation
+            r_vt_ratio = record.vt_detection_ratio
+            r_completed_at = record.completed_at.isoformat()
+
+        # Step 10: Cache result in Redis
+        # Use local variables extracted inside session — NOT record.attribute
         cache_key = f"scan:{scan_id}"
         cache_data = {
             "scan_id": scan_id,
             "status": "complete",
-            "file_name": record.file_name,
+            "file_name": r_file_name,
             "apk_hash": apk_hash,
-            "package_name": record.package_name,
+            "package_name": r_package_name,
             "risk_score": final_result["risk_score"],
             "verdict": final_result["verdict"],
             "confidence_level": final_result["confidence_level"],
             "malware_family": final_result["malware_family"],
             "threat_summary": final_result["threat_summary"],
             "signal_scores": final_result["signal_scores"],
-            "ml_explanation": record.ml_explanation,
+            "ml_explanation": r_ml_explanation,
             "mitre_attacks": final_result["mitre_attacks"],
             "iocs": final_result["iocs"],
             "static_ml_result": static_ml_result,
-            "dangerous_permissions": final_result["dangerous_permissions"],
+            "model_agreement": final_result.get(
+                "model_agreement", "UNKNOWN"
+            ),
+            "dangerous_permissions": final_result[
+                "dangerous_permissions"
+            ],
             "sensitive_apis": final_result["sensitive_apis"],
-            "vt_detection_ratio": record.vt_detection_ratio,
+            "vt_detection_ratio": r_vt_ratio,
             "signature_verdict": signature_verdict,
             "cert_lookup": cert_result,
             "scan_duration_seconds": elapsed,
-            "completed_at": record.completed_at.isoformat()
+            "completed_at": r_completed_at
         }
 
         redis_client.setex(
@@ -252,14 +315,28 @@ def run_scan(self, scan_id: str, apk_path: str, scan_type: str = "deep"):
             json.dumps(cache_data)
         )
 
-        logger.info("scan_complete_cached", scan_id=scan_id, duration=elapsed, verdict=final_result["verdict"])
+        logger.info(
+            "scan_complete_cached",
+            scan_id=scan_id,
+            duration=elapsed,
+            verdict=final_result["verdict"]
+        )
 
     except Exception as exc:
-        logger.error("scan_failed", scan_id=scan_id, error=str(exc), exc_info=True)
+        logger.error(
+            "scan_failed",
+            scan_id=scan_id,
+            error=str(exc),
+            exc_info=True
+        )
         try:
             with db.session() as session:
-                stmt = select(ScanRecord).where(ScanRecord.id == uuid.UUID(scan_id))
-                record = session.execute(stmt).scalar_one_or_none()
+                stmt = select(ScanRecord).where(
+                    ScanRecord.id == uuid.UUID(scan_id)
+                )
+                record = session.execute(
+                    stmt
+                ).scalar_one_or_none()
                 if record:
                     record.status = "failed"
                     session.commit()
