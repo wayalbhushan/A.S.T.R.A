@@ -16,6 +16,7 @@ from app.api.auth import generate_api_key, require_api_key, store_api_key
 from app.extensions import db, limiter, redis_client
 from app.models.scan import CertificateRecord, ScanRecord
 from app.tasks.scan_tasks import run_scan
+from app.analysis.cert_lookup import TRUSTED_HASHES
 
 logger = structlog.get_logger()
 api_bp = Blueprint("api", __name__)
@@ -60,6 +61,22 @@ def submit_scan():
         return jsonify({
             "status": "error",
             "message": "Only .apk files accepted",
+            "code": 400
+        }), 400
+
+    import magic
+    mime = magic.from_buffer(
+        file.read(2048), mime=True
+    )
+    file.seek(0)
+    if mime not in [
+        'application/vnd.android.package-archive',
+        'application/zip',
+        'application/java-archive'
+    ]:
+        return jsonify({
+            "status": "error",
+            "message": "File does not appear to be a valid APK",
             "code": 400
         }), 400
 
@@ -334,7 +351,7 @@ def platform_stats():
             "clean_count": clean_count,
             "detection_rate_percent": detection_rate,
             "certificates_tracked": cert_count,
-            "trusted_certs_in_db": 34,
+            "trusted_certs_in_db": len(TRUSTED_HASHES),
             "recent_scans": [
                 {
                     "scan_id": str(r.id),
@@ -351,6 +368,7 @@ def platform_stats():
 
 
 @api_bp.route("/auth/generate", methods=["POST"])
+@limiter.limit("5 per hour")
 def generate_key():
     """Generates a secure API key. No authentication is required for this route."""
     key = generate_api_key()

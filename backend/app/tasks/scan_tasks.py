@@ -155,6 +155,7 @@ def run_scan(self, scan_id: str, apk_path: str, scan_type: str = "deep"):
                     cert_record.scan_count += 1
                     if is_malicious:
                         cert_record.malicious_count += 1
+                    session.commit()
                 else:
                     issuer = androguard_data.get("certificate", {}).get("issuer", "Unknown")
                     subject = androguard_data.get("certificate", {}).get("subject", "Unknown")
@@ -165,8 +166,18 @@ def run_scan(self, scan_id: str, apk_path: str, scan_type: str = "deep"):
                         scan_count=1,
                         malicious_count=1 if is_malicious else 0
                     )
-                    session.add(cert_record)
-                session.commit()
+                    from sqlalchemy.exc import IntegrityError
+                    try:
+                        session.add(cert_record)
+                        session.commit()
+                    except IntegrityError:
+                        session.rollback()
+                        cert_record = session.execute(cert_stmt).scalar_one_or_none()
+                        if cert_record:
+                            cert_record.scan_count += 1
+                            if is_malicious:
+                                cert_record.malicious_count += 1
+                            session.commit()
 
         # Step 9: Update ScanRecord with all results (Task 2)
         elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
