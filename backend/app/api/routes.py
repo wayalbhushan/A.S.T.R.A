@@ -221,6 +221,17 @@ def get_scan_result(scan_id: str):
             "verdict": record.verdict,
             "ml_class": record.ml_class,
             "ml_confidence": record.ml_confidence,
+            "static_ml_class": record.static_ml_class,
+            "static_ml_confidence": record.static_ml_confidence,
+            "static_ml_result": {
+                "class_name": record.static_ml_class,
+                "confidence": record.static_ml_confidence,
+                "top_features": (record.ml_explanation or {}).get(
+                    "static_top_features", []
+                )
+            },
+            "signal_scores": record.signal_scores,
+            "model_agreement": record.model_agreement,
             "signature_verdict": record.signature_verdict,
             "vt_detection_ratio": record.vt_detection_ratio,
             "androguard_data": record.androguard_data,

@@ -251,6 +251,8 @@ def run_scan(self, scan_id: str, apk_path: str, scan_type: str = "deep"):
             record.ml_confidence = final_result["ml_confidence"]
             record.static_ml_class = static_ml_result["class_name"]
             record.static_ml_confidence = static_ml_result["confidence"]
+            record.signal_scores = final_result.get("signal_scores")
+            record.model_agreement = final_result.get("model_agreement")
             record.signature_verdict = signature_verdict
             record.vt_detection_ratio = vt_report.get(
                 "detection_ratio", "0/0"
@@ -262,6 +264,9 @@ def run_scan(self, scan_id: str, apk_path: str, scan_type: str = "deep"):
                 "top_features": ml_result.get("top_features", []),
                 "all_probabilities": ml_result.get(
                     "all_probabilities", {}
+                ),
+                "static_top_features": static_ml_result.get(
+                    "top_features", []
                 )
             }
             record.cert_hash = cert_hash or None
@@ -275,6 +280,10 @@ def run_scan(self, scan_id: str, apk_path: str, scan_type: str = "deep"):
             r_ml_explanation = record.ml_explanation
             r_vt_ratio = record.vt_detection_ratio
             r_completed_at = record.completed_at.isoformat()
+            r_signal_scores = record.signal_scores
+            r_model_agreement = record.model_agreement
+            r_static_ml_class = record.static_ml_class
+            r_static_ml_confidence = record.static_ml_confidence
 
         # Step 10: Cache result in Redis
         # Use local variables extracted inside session — NOT record.attribute
@@ -290,14 +299,16 @@ def run_scan(self, scan_id: str, apk_path: str, scan_type: str = "deep"):
             "confidence_level": final_result["confidence_level"],
             "malware_family": final_result["malware_family"],
             "threat_summary": final_result["threat_summary"],
-            "signal_scores": final_result["signal_scores"],
+            "signal_scores": r_signal_scores,
             "ml_explanation": r_ml_explanation,
             "mitre_attacks": final_result["mitre_attacks"],
             "iocs": final_result["iocs"],
-            "static_ml_result": static_ml_result,
-            "model_agreement": final_result.get(
-                "model_agreement", "UNKNOWN"
-            ),
+            "static_ml_result": {
+                "class_name": r_static_ml_class,
+                "confidence": r_static_ml_confidence,
+                "top_features": static_ml_result.get("top_features", [])
+            },
+            "model_agreement": r_model_agreement or "UNKNOWN",
             "dangerous_permissions": final_result[
                 "dangerous_permissions"
             ],
