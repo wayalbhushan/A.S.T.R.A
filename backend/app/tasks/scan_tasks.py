@@ -4,6 +4,7 @@ Orchestrates the async analysis pipeline for uploaded APKs.
 """
 
 import json
+import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -237,6 +238,42 @@ def run_scan(self, scan_id: str, apk_path: str, scan_type: str = "deep"):
             datetime.now(timezone.utc) - start_time
         ).total_seconds()
 
+        try:
+            extracted_iocs = androguard_data.get("extracted_iocs", {})
+            network = extracted_iocs.get("network", {})
+            secrets = extracted_iocs.get("secrets", {})
+            entropy = extracted_iocs.get("entropy_candidates", {})
+
+            ioc_summary = {
+                "urls_found": network.get("counts", {}).get("urls", 0),
+                "ips_found": network.get("counts", {}).get("ips", 0),
+                "domains_found": network.get("counts", {}).get("domains", 0),
+                "secrets_found": secrets.get("counts", {}).get("total", 0),
+                "entropy_candidates_found": entropy.get("counts", {}).get(
+                    "candidates_found", 0
+                ),
+                "entropy_candidates_shown": entropy.get("counts", {}).get(
+                    "truncated_to", 0
+                ),
+                "total_ioc_count": (
+                    network.get("counts", {}).get("urls", 0)
+                    + network.get("counts", {}).get("ips", 0)
+                    + network.get("counts", {}).get("domains", 0)
+                    + secrets.get("counts", {}).get("total", 0)
+                ),
+            }
+        except Exception as summary_exc:
+            logger.warning("ioc_summary_computation_failed", scan_id=scan_id, error=str(summary_exc))
+            ioc_summary = {
+                "urls_found": 0,
+                "ips_found": 0,
+                "domains_found": 0,
+                "secrets_found": 0,
+                "entropy_candidates_found": 0,
+                "entropy_candidates_shown": 0,
+                "total_ioc_count": 0,
+            }
+
         with db.session() as session:
             stmt = select(ScanRecord).where(
                 ScanRecord.id == uuid.UUID(scan_id)
@@ -258,6 +295,7 @@ def run_scan(self, scan_id: str, apk_path: str, scan_type: str = "deep"):
                 "detection_ratio", "0/0"
             )
             record.androguard_data = androguard_data
+            record.ioc_summary = ioc_summary
             record.vt_data = vt_report
             record.sandbox_data = sandbox_report
             record.ml_explanation = {
@@ -284,6 +322,7 @@ def run_scan(self, scan_id: str, apk_path: str, scan_type: str = "deep"):
             r_model_agreement = record.model_agreement
             r_static_ml_class = record.static_ml_class
             r_static_ml_confidence = record.static_ml_confidence
+            r_ioc_summary = record.ioc_summary
 
         # Step 10: Cache result in Redis
         # Use local variables extracted inside session — NOT record.attribute
@@ -317,7 +356,9 @@ def run_scan(self, scan_id: str, apk_path: str, scan_type: str = "deep"):
             "signature_verdict": signature_verdict,
             "cert_lookup": cert_result,
             "scan_duration_seconds": elapsed,
-            "completed_at": r_completed_at
+            "completed_at": r_completed_at,
+            "ioc_summary": r_ioc_summary,
+            "extracted_iocs": androguard_data.get("extracted_iocs", {})
         }
 
         redis_client.setex(
@@ -332,6 +373,17 @@ def run_scan(self, scan_id: str, apk_path: str, scan_type: str = "deep"):
             duration=elapsed,
             verdict=final_result["verdict"]
         )
+
+        try:
+            if os.path.exists(apk_path):
+                os.remove(apk_path)
+                logger.info("uploaded_apk_deleted", scan_id=scan_id)
+        except Exception as cleanup_exc:
+            logger.warning(
+                "apk_cleanup_failed",
+                scan_id=scan_id,
+                error=str(cleanup_exc)
+            )
 
     except Exception as exc:
         logger.error(

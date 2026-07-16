@@ -36,6 +36,7 @@ class ScanRecord(db.Model):
 
     # Granular analysis details stored as JSONB/JSON
     androguard_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    ioc_summary: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     vt_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     sandbox_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     ml_explanation: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
@@ -87,6 +88,7 @@ class ScanRecord(db.Model):
         signature_verdict: Optional[str] = None,
         vt_detection_ratio: Optional[str] = None,
         androguard_data: Optional[dict] = None,
+        ioc_summary: Optional[dict] = None,
         vt_data: Optional[dict] = None,
         sandbox_data: Optional[dict] = None,
         ml_explanation: Optional[dict] = None,
@@ -110,6 +112,7 @@ class ScanRecord(db.Model):
         self.signature_verdict = signature_verdict
         self.vt_detection_ratio = vt_detection_ratio
         self.androguard_data = androguard_data
+        self.ioc_summary = ioc_summary
         self.vt_data = vt_data
         self.sandbox_data = sandbox_data
         self.ml_explanation = ml_explanation

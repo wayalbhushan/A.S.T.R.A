@@ -235,6 +235,10 @@ def get_scan_result(scan_id: str):
             "signature_verdict": record.signature_verdict,
             "vt_detection_ratio": record.vt_detection_ratio,
             "androguard_data": record.androguard_data,
+            "ioc_summary": record.ioc_summary,
+            "extracted_iocs": (record.androguard_data or {}).get(
+                "extracted_iocs", {}
+            ),
             "vt_data": record.vt_data,
             "sandbox_data": record.sandbox_data,
             "ml_explanation": record.ml_explanation,

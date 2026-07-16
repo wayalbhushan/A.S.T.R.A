@@ -10,6 +10,11 @@ from statistics import mean
 import OpenSSL
 import structlog
 from androguard.misc import AnalyzeAPK
+from app.analysis.ioc_extractor import (
+    extract_network_iocs,
+    extract_secrets,
+    find_suspected_secrets,
+)
 
 logger = structlog.get_logger()
 
@@ -190,12 +195,46 @@ def extract(apk_path: str) -> dict:
 
     # 4. Shannon Entropy
     strings = [s.get_value() for s in dx.get_strings()]
+    all_strings = strings
     avg_entropy = 0.0
     high_entropy_count = 0
     if strings:
         entropies = [shannon_entropy(s) for s in strings]
         avg_entropy = float(mean(entropies))
         high_entropy_count = sum(1 for e in entropies if e > 4.5)
+
+    # IOC Extraction
+    try:
+        network_iocs = extract_network_iocs(all_strings)
+        secret_iocs = extract_secrets(all_strings)
+
+        already_matched_strings = (
+            network_iocs.get("urls", [])
+            + network_iocs.get("domains", [])
+            + list(secret_iocs.get("firebase_urls", []))
+            + list(secret_iocs.get("firebase_api_keys", []))
+            + list(secret_iocs.get("telegram_bot_tokens", []))
+            + list(secret_iocs.get("discord_webhooks", []))
+            + list(secret_iocs.get("aws_access_keys", []))
+        )
+
+        entropy_secrets = find_suspected_secrets(
+            all_strings, already_matched=already_matched_strings
+        )
+    except Exception as e:
+        logger.warning("ioc_extraction_failed", error=str(e))
+        network_iocs = {"urls": [], "ips": [], "domains": [],
+                        "counts": {"urls": 0, "ips": 0, "domains": 0}}
+        secret_iocs = {"firebase_urls": [], "firebase_api_keys": [],
+                       "telegram_bot_tokens": [], "discord_webhooks": [],
+                       "aws_access_keys": [], "generic_key_assignments": [],
+                       "counts": {"firebase_urls": 0, "firebase_api_keys": 0,
+                                  "telegram_bot_tokens": 0, "discord_webhooks": 0,
+                                  "aws_access_keys": 0,
+                                  "generic_key_assignments": 0, "total": 0}}
+        entropy_secrets = {"suspected_secrets": [],
+                           "counts": {"candidates_found": 0,
+                                      "truncated_to": 0}}
 
     # 5. Sensitive API Calls via cross-references (xref)
     sensitive_apis_found = set()
@@ -218,6 +257,15 @@ def extract(apk_path: str) -> dict:
         dangerous_count=dangerous_count
     )
 
+    logger.info(
+        "iocs_extracted",
+        urls_found=network_iocs["counts"]["urls"],
+        ips_found=network_iocs["counts"]["ips"],
+        domains_found=network_iocs["counts"]["domains"],
+        secrets_found=secret_iocs["counts"]["total"],
+        entropy_candidates=entropy_secrets["counts"]["candidates_found"],
+    )
+
     return {
         "apk_hash": apk_hash,
         "package_name": package_name,
@@ -238,7 +286,12 @@ def extract(apk_path: str) -> dict:
         "sensitive_api_count": sensitive_api_count,
         "avg_string_entropy": round(avg_entropy, 4),
         "high_entropy_string_count": high_entropy_count,
-        "string_count": len(strings)
+        "string_count": len(strings),
+        "extracted_iocs": {
+            "network": network_iocs,
+            "secrets": secret_iocs,
+            "entropy_candidates": entropy_secrets,
+        }
     }
 
 
