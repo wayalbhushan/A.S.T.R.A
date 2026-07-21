@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
-import { RefreshCw, Radio } from 'lucide-react'
+import { RefreshCw, Radio, Search, Copy, Check, Download } from 'lucide-react'
 import { api } from '../api/client'
 
 export default function IOCFeed() {
   const [feed, setFeed] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [copiedId, setCopiedId] = useState(null)
 
   const fetchFeed = () => {
     setLoading(true)
@@ -22,8 +24,34 @@ export default function IOCFeed() {
 
   const indicators = feed?.objects || []
 
-  // Truncation Helper
-  const truncate = (str, len = 20) => {
+  const filteredIndicators = indicators.filter(ind => {
+    const q = searchQuery.toLowerCase()
+    return (
+      (ind.id || '').toLowerCase().includes(q) ||
+      (ind.name || '').toLowerCase().includes(q) ||
+      (ind.pattern || '').toLowerCase().includes(q) ||
+      (ind.labels || []).some(l => l.toLowerCase().includes(q))
+    )
+  })
+
+  const copyToClipboard = (text, id) => {
+    navigator.clipboard.writeText(text)
+    setCopiedId(id)
+    setTimeout(() => setCopiedId(null), 2000)
+  }
+
+  const exportJSON = () => {
+    if (!feed) return
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(feed, null, 2))
+    const downloadAnchor = document.createElement('a')
+    downloadAnchor.setAttribute("href", dataStr)
+    downloadAnchor.setAttribute("download", `astra_stix_ioc_feed_${Date.now()}.json`)
+    document.body.appendChild(downloadAnchor)
+    downloadAnchor.click()
+    downloadAnchor.remove()
+  }
+
+  const truncate = (str, len = 24) => {
     if (!str) return '—'
     if (str.length <= len) return str
     return str.substring(0, len) + '...'
@@ -37,6 +65,8 @@ export default function IOCFeed() {
         justifyContent: 'space-between',
         alignItems: 'center',
         marginBottom: '20px',
+        flexWrap: 'wrap',
+        gap: '12px',
       }}>
         <div style={{
           fontSize: '12px',
@@ -48,48 +78,88 @@ export default function IOCFeed() {
           alignItems: 'center',
           gap: '8px',
         }}>
-          <Radio size={16} />
-          STIX 2.1 Format · {loading ? '—' : indicators.length} Indicators
+          <Radio size={16} color="var(--action-blue)" />
+          STIX 2.1 Threat Intel · {loading ? '—' : `${filteredIndicators.length} Indicators`}
         </div>
-        <button
-          onClick={fetchFeed}
-          disabled={loading}
-          style={{
-            background: 'transparent',
-            border: '1px solid var(--border)',
-            color: 'var(--text-primary)',
-            padding: '6px 12px',
-            fontSize: '12px',
-            fontWeight: 600,
-            cursor: 'pointer',
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {/* Search bar */}
+          <div style={{
             display: 'flex',
             alignItems: 'center',
+            background: 'var(--bg-secondary)',
+            border: '1px solid var(--border)',
+            padding: '4px 10px',
             gap: '6px',
-            borderRadius: '0px',
-          }}
-        >
-          <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
-          Refresh Feed
-        </button>
+            width: '240px',
+          }}>
+            <Search size={14} color="var(--text-placeholder)" />
+            <input
+              type="text"
+              placeholder="Search IOCs or patterns..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                outline: 'none',
+                color: 'var(--text-primary)',
+                fontSize: '12px',
+                width: '100%',
+                fontFamily: 'IBM Plex Sans, sans-serif',
+              }}
+            />
+          </div>
+
+          {/* Export STIX JSON */}
+          <button
+            className="btn-carbon-secondary"
+            onClick={exportJSON}
+            disabled={!feed || indicators.length === 0}
+            style={{ fontSize: '12px', padding: '6px 12px' }}
+          >
+            <Download size={13} />
+            Export STIX JSON
+          </button>
+
+          {/* Refresh Feed */}
+          <button
+            className="btn-carbon-secondary"
+            onClick={fetchFeed}
+            disabled={loading}
+            style={{ fontSize: '12px', padding: '6px 12px' }}
+          >
+            <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* Loading & Error States */}
       {loading && (
-        <div style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
-          Loading threat intelligence indicators...
+        <div style={{
+          color: 'var(--text-secondary)',
+          fontSize: '14px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          padding: '24px 0',
+        }}>
+          <RefreshCw size={16} className="animate-spin" color="var(--action-blue)" />
+          Fetching STIX 2.1 threat feed...
         </div>
       )}
 
       {!loading && error && (
         <div style={{
-          padding: '12px',
-          background: 'rgba(218, 30, 40, 0.1)',
+          padding: '14px 16px',
+          background: 'var(--danger-bg)',
           border: '1px solid var(--danger)',
           color: 'var(--danger)',
           fontSize: '13px',
           marginBottom: '24px',
         }}>
-          Error: {error}
+          Error loading threat feed: {error}
         </div>
       )}
 
@@ -99,17 +169,17 @@ export default function IOCFeed() {
           background: 'var(--bg-secondary)',
           border: '1px solid var(--border)',
         }}>
-          <table style={{
+          <table className="carbon-table" style={{
             width: '100%',
             borderCollapse: 'collapse',
           }}>
             <thead>
               <tr>
-                {['Indicator ID', 'File Name', 'SHA-256 Pattern', 'Labels', 'Created Date'].map(h => (
+                {['Indicator ID', 'File Name', 'SHA-256 Pattern', 'Labels', 'Created Date', 'Action'].map(h => (
                   <th key={h} style={{
                     padding: '10px 16px',
                     textAlign: 'left',
-                    fontSize: '12px',
+                    fontSize: '11px',
                     color: 'var(--text-secondary)',
                     letterSpacing: '0.32px',
                     textTransform: 'uppercase',
@@ -123,18 +193,21 @@ export default function IOCFeed() {
               </tr>
             </thead>
             <tbody>
-              {indicators.length === 0 ? (
+              {filteredIndicators.length === 0 ? (
                 <tr>
-                  <td colSpan={5} style={{
-                    padding: '24px 16px',
+                  <td colSpan={6} style={{
+                    padding: '32px 16px',
                     color: 'var(--text-placeholder)',
                     textAlign: 'center',
+                    fontSize: '13px',
                   }}>
-                    No malicious indicators yet. Submit APKs to generate threat intelligence data.
+                    {indicators.length === 0
+                      ? 'No malicious indicators yet. Submit APKs to generate STIX 2.1 threat intelligence data.'
+                      : 'No STIX indicators match your current search query.'}
                   </td>
                 </tr>
               ) : (
-                indicators.map(ind => (
+                filteredIndicators.map(ind => (
                   <tr
                     key={ind.id}
                     style={{ borderBottom: '1px solid var(--border-subtle)' }}
@@ -150,6 +223,7 @@ export default function IOCFeed() {
                       padding: '10px 16px',
                       fontSize: '13px',
                       color: 'var(--text-primary)',
+                      fontWeight: 500,
                     }}>
                       {truncate(ind.name || 'Unknown APK', 24)}
                     </td>
@@ -158,7 +232,7 @@ export default function IOCFeed() {
                       fontSize: '11px',
                       color: 'var(--text-secondary)',
                     }}>
-                      {truncate(ind.pattern, 40)}
+                      {truncate(ind.pattern, 36)}
                     </td>
                     <td style={{ padding: '10px 16px' }}>
                       <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
@@ -172,7 +246,7 @@ export default function IOCFeed() {
                               fontSize: '10px',
                               fontWeight: 600,
                               textTransform: 'uppercase',
-                              borderRadius: '0px',
+                              border: '1px solid var(--border-subtle)',
                               fontFamily: 'IBM Plex Sans, sans-serif'
                             }}
                           >
@@ -187,6 +261,26 @@ export default function IOCFeed() {
                       fontSize: '12px',
                     }}>
                       {new Date(ind.created).toLocaleString()}
+                    </td>
+                    <td style={{ padding: '10px 16px' }}>
+                      <button
+                        className="btn-carbon-ghost"
+                        onClick={() => copyToClipboard(ind.pattern, ind.id)}
+                        title="Copy pattern to clipboard"
+                        style={{ padding: '4px 8px' }}
+                      >
+                        {copiedId === ind.id ? (
+                          <>
+                            <Check size={12} color="var(--success)" />
+                            <span style={{ color: 'var(--success)', fontSize: '11px' }}>Copied</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy size={12} />
+                            <span style={{ fontSize: '11px' }}>Copy</span>
+                          </>
+                        )}
+                      </button>
                     </td>
                   </tr>
                 ))
