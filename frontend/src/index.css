@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;600&family=IBM+Plex+Mono:wght@400;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
 @import "tailwindcss/base";
 @import "tailwindcss/components";
@@ -8,6 +8,7 @@
   --bg-primary: #161616;
   --bg-secondary: #262626;
   --bg-elevated: #393939;
+  --bg-hover: #4c4c4c;
   --border: #525252;
   --border-subtle: #393939;
   --text-primary: #f4f4f4;
@@ -16,9 +17,13 @@
   --action-blue: #0f62fe;
   --action-blue-hover: #0353e9;
   --success: #24a148;
+  --success-bg: rgba(36, 161, 72, 0.12);
   --warning: #f1c21b;
+  --warning-bg: rgba(241, 194, 27, 0.12);
   --danger: #da1e28;
+  --danger-bg: rgba(218, 30, 40, 0.12);
   --info: #009d9a;
+  --info-bg: rgba(0, 157, 154, 0.12);
   --tag-bg: #393939;
 }
 
@@ -29,13 +34,139 @@
 }
 
 body {
-  font-family: 'IBM Plex Sans', sans-serif;
+  font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   background: var(--bg-primary);
   color: var(--text-primary);
   font-size: 14px;
   line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 code, .mono {
   font-family: 'IBM Plex Mono', monospace;
+}
+
+/* Custom IBM Carbon Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 0px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-placeholder);
+}
+
+/* Status Dot Pulse Animation */
+@keyframes status-pulse {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(36, 161, 72, 0.7);
+  }
+  70% {
+    transform: scale(1);
+    box-shadow: 0 0 0 6px rgba(36, 161, 72, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(36, 161, 72, 0);
+  }
+}
+
+.pulse-dot {
+  width: 8px;
+  height: 8px;
+  background-color: var(--success);
+  border-radius: 50%;
+  display: inline-block;
+  animation: status-pulse 2s infinite;
+}
+
+/* Carbon Interactive Table Row Hover */
+.carbon-table tr {
+  transition: background-color 0.12s ease-in-out;
+}
+
+.carbon-table tbody tr:hover {
+  background-color: var(--bg-elevated) !important;
+}
+
+/* Carbon Button Utility Effects */
+.btn-carbon {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: var(--action-blue);
+  color: #ffffff;
+  border: 1px solid transparent;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+  outline: none;
+}
+
+.btn-carbon:hover {
+  background: var(--action-blue-hover);
+}
+
+.btn-carbon:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
+}
+
+.btn-carbon-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+  outline: none;
+}
+
+.btn-carbon-secondary:hover {
+  background: var(--bg-hover);
+  border-color: var(--text-secondary);
+}
+
+.btn-carbon-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid transparent;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.btn-carbon-ghost:hover {
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+}
+
+/* Details summary override */
+details summary::-webkit-details-marker {
+  display: inline-block;
 }
