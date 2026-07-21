@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, AlertTriangle, Shield,
-  Cpu, Globe, Lock, FileText
+  Cpu, Globe, Lock, FileText, Download, Copy, Check
 } from 'lucide-react'
 import { api } from '../api/client'
 import VerdictBadge from '../components/VerdictBadge'
@@ -14,6 +14,25 @@ export default function ScanResult() {
   const [result, setResult] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [copiedKey, setCopiedKey] = useState(null)
+
+  const copyToClipboard = (text, key) => {
+    if (!text) return
+    navigator.clipboard.writeText(text)
+    setCopiedKey(key)
+    setTimeout(() => setCopiedKey(null), 2000)
+  }
+
+  const exportReportJSON = () => {
+    if (!result) return
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(result, null, 2))
+    const downloadAnchor = document.createElement('a')
+    downloadAnchor.setAttribute("href", dataStr)
+    downloadAnchor.setAttribute("download", `astra_scan_${scanId}_report.json`)
+    document.body.appendChild(downloadAnchor)
+    downloadAnchor.click()
+    downloadAnchor.remove()
+  }
 
   useEffect(() => {
     api.getScanResult(scanId)
@@ -159,26 +178,55 @@ export default function ScanResult() {
 
   return (
     <div>
-      {/* Back button */}
-      <button
-        onClick={() => navigate('/')}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px',
-          background: 'transparent',
-          border: 'none',
-          color: 'var(--text-secondary)',
-          cursor: 'pointer',
-          fontSize: '13px',
-          padding: '0',
-          marginBottom: '16px',
-          fontFamily: 'IBM Plex Sans, sans-serif',
-        }}
-      >
-        <ArrowLeft size={14} />
-        Back to Dashboard
-      </button>
+      {/* Top Action Toolbar */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: '16px',
+        flexWrap: 'wrap',
+        gap: '12px',
+      }}>
+        <button
+          className="btn-carbon-ghost"
+          onClick={() => navigate('/')}
+          style={{ padding: '4px 8px' }}
+        >
+          <ArrowLeft size={14} />
+          Back to Dashboard
+        </button>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {result.apk_hash && (
+            <button
+              className="btn-carbon-secondary"
+              onClick={() => copyToClipboard(result.apk_hash, 'apk_hash')}
+              style={{ fontSize: '12px', padding: '6px 12px' }}
+            >
+              {copiedKey === 'apk_hash' ? (
+                <>
+                  <Check size={13} color="var(--success)" />
+                  <span style={{ color: 'var(--success)' }}>Hash Copied</span>
+                </>
+              ) : (
+                <>
+                  <Copy size={13} />
+                  <span>Copy SHA-256 Hash</span>
+                </>
+              )}
+            </button>
+          )}
+
+          <button
+            className="btn-carbon-secondary"
+            onClick={exportReportJSON}
+            style={{ fontSize: '12px', padding: '6px 12px' }}
+          >
+            <Download size={13} />
+            Export Full JSON Report
+          </button>
+        </div>
+      </div>
 
       {/* Top summary row */}
       <div style={{
