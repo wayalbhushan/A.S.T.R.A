@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Upload, FileText, AlertCircle } from 'lucide-react'
+import { Upload, FileText, AlertCircle, X, Shield, Zap, RefreshCw, CheckCircle2 } from 'lucide-react'
 import { api } from '../api/client'
 
 export default function ScanSubmit() {
@@ -10,19 +10,44 @@ export default function ScanSubmit() {
   const [error, setError] = useState(null)
   const [scanId, setScanId] = useState(null)
   const [pollStatus, setPollStatus] = useState(null)
+  const [isDragging, setIsDragging] = useState(false)
   const pollRef = useRef(null)
   const navigate = useNavigate()
 
+  const validateAndSetFile = (f) => {
+    if (!f) return
+    if (f.name.toLowerCase().endsWith('.apk')) {
+      setFile(f)
+      setError(null)
+    } else {
+      setError('Invalid file type. Only Android Package (.apk) files are supported.')
+      setFile(null)
+    }
+  }
+
   const handleFileChange = (e) => {
     const f = e.target.files[0]
-    if (f) {
-      if (f.name.toLowerCase().endsWith('.apk')) {
-        setFile(f)
-        setError(null)
-      } else {
-        setError('Only .apk files are accepted')
-        setFile(null)
-      }
+    validateAndSetFile(f)
+  }
+
+  const handleDragOver = (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(true)
+  }
+
+  const handleDragLeave = (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+  }
+
+  const handleDrop = (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      validateAndSetFile(e.dataTransfer.files[0])
     }
   }
 
@@ -41,9 +66,9 @@ export default function ScanSubmit() {
         }
       } catch {
         clearInterval(pollRef.current)
-        setError('Polling failed. Check your API server connection.')
+        setError('Polling failed. Check your backend server connection.')
       }
-    }, 5000)
+    }, 4000)
   }
 
   const handleSubmit = async () => {
@@ -63,13 +88,12 @@ export default function ScanSubmit() {
     } catch (err) {
       setError(
         err.response?.data?.message || 
-        'Submission failed. Make sure the backend server is running.'
+        'Submission failed. Make sure the backend API server is running.'
       )
       setSubmitting(false)
     }
   }
 
-  // Clear polling interval on unmount
   useEffect(() => {
     return () => {
       if (pollRef.current) {
@@ -79,21 +103,21 @@ export default function ScanSubmit() {
   }, [])
 
   const STATUS_LABELS = {
-    pending: 'Queued — waiting for worker',
-    processing: 'Analyzing APK...',
-    complete: 'Complete — redirecting...',
-    failed: 'Analysis failed',
+    pending: 'Queued — waiting for worker thread...',
+    processing: 'Decompiling APK & running static/dynamic ML models...',
+    complete: 'Analysis complete — redirecting to report...',
+    failed: 'Analysis failed — please check worker logs.',
   }
 
   return (
-    <div style={{ maxWidth: '600px', margin: '0' }}>
+    <div style={{ maxWidth: '680px', margin: '0' }}>
 
       {/* Upload zone */}
       <div style={{
         background: 'var(--bg-secondary)',
         border: '1px solid var(--border)',
-        padding: '32px',
-        marginBottom: '16px',
+        padding: '24px',
+        marginBottom: '20px',
       }}>
         <div style={{
           fontSize: '12px',
@@ -101,81 +125,112 @@ export default function ScanSubmit() {
           letterSpacing: '0.32px',
           textTransform: 'uppercase',
           fontWeight: 600,
-          marginBottom: '16px',
+          marginBottom: '14px',
         }}>
-          APK File
+          1. Select APK Package
         </div>
 
-        <label style={{
-          display: 'block',
-          border: '1px dashed var(--border)',
-          padding: '24px',
-          textAlign: 'center',
-          cursor: 'pointer',
-          background: 'var(--bg-primary)',
-        }}>
+        <div
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          style={{
+            border: isDragging ? '2px dashed var(--action-blue)' : '1px dashed var(--border)',
+            padding: '36px 24px',
+            textAlign: 'center',
+            background: isDragging ? 'var(--bg-elevated)' : 'var(--bg-primary)',
+            transition: 'all 0.15s ease',
+            cursor: 'pointer',
+            position: 'relative',
+          }}
+        >
           <input
             type="file"
             accept=".apk"
             onChange={handleFileChange}
-            style={{ display: 'none' }}
+            disabled={submitting}
+            style={{
+              position: 'absolute',
+              top: 0, left: 0, width: '100%', height: '100%',
+              opacity: 0, cursor: submitting ? 'not-allowed' : 'pointer',
+            }}
           />
+          
           {file ? (
             <div style={{
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: '8px',
+              gap: '12px',
+              position: 'relative',
+              zIndex: 2,
             }}>
-              <FileText
-                size={16}
-                color='var(--action-blue)'
-              />
-              <span style={{
-                fontFamily: 'IBM Plex Mono, monospace',
-                fontSize: '13px',
-                color: 'var(--text-primary)',
-              }}>
-                {file.name}
-              </span>
-              <span style={{
-                fontSize: '12px',
-                color: 'var(--text-secondary)',
-              }}>
-                ({(file.size / 1024 / 1024).toFixed(1)} MB)
-              </span>
+              <FileText size={24} color='var(--action-blue)' />
+              <div style={{ textAlign: 'left' }}>
+                <div className="mono" style={{
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  color: 'var(--text-primary)',
+                }}>
+                  {file.name}
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                  Size: {(file.size / 1024 / 1024).toFixed(2)} MB · Format: Android Application Package
+                </div>
+              </div>
+              
+              {!submitting && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setFile(null)
+                  }}
+                  style={{
+                    background: 'var(--bg-elevated)',
+                    border: '1px solid var(--border)',
+                    color: 'var(--text-secondary)',
+                    padding: '4px',
+                    cursor: 'pointer',
+                    marginLeft: '12px',
+                  }}
+                >
+                  <X size={16} />
+                </button>
+              )}
             </div>
           ) : (
             <div>
               <Upload
-                size={20}
-                color='var(--text-placeholder)'
-                style={{ margin: '0 auto 8px' }}
+                size={28}
+                color={isDragging ? 'var(--action-blue)' : 'var(--text-placeholder)'}
+                style={{ margin: '0 auto 12px' }}
               />
               <div style={{
                 fontSize: '14px',
-                color: 'var(--text-secondary)',
+                fontWeight: 600,
+                color: 'var(--text-primary)',
               }}>
-                Click to select .apk file
+                {isDragging ? 'Drop .apk file here' : 'Drag & drop your .apk file here, or click to browse'}
               </div>
               <div style={{
                 fontSize: '12px',
                 color: 'var(--text-placeholder)',
-                marginTop: '4px',
+                marginTop: '6px',
               }}>
-                Maximum 50 MB
+                Accepts standalone APK binaries up to 50 MB
               </div>
             </div>
           )}
-        </label>
+        </div>
       </div>
 
       {/* Scan type selector */}
       <div style={{
         background: 'var(--bg-secondary)',
         border: '1px solid var(--border)',
-        padding: '16px',
-        marginBottom: '16px',
+        padding: '24px',
+        marginBottom: '20px',
       }}>
         <div style={{
           fontSize: '12px',
@@ -183,126 +238,147 @@ export default function ScanSubmit() {
           letterSpacing: '0.32px',
           textTransform: 'uppercase',
           fontWeight: 600,
-          marginBottom: '12px',
+          marginBottom: '14px',
         }}>
-          Scan Type
+          2. Choose Pipeline Profile
         </div>
-        <div style={{ display: 'flex', gap: '1px' }}>
-          {['quick', 'deep'].map(type => (
-            <button
-              key={type}
-              onClick={() => setScanType(type)}
-              disabled={submitting}
-              style={{
-                flex: 1,
-                padding: '10px',
-                background: scanType === type
-                  ? 'var(--action-blue)'
-                  : 'var(--bg-elevated)',
-                color: 'var(--text-primary)',
-                border: 'none',
-                cursor: submitting ? 'not-allowed' : 'pointer',
-                fontSize: '13px',
-                fontWeight: 600,
-                textTransform: 'uppercase',
-                letterSpacing: '0.16px',
-                fontFamily: 'IBM Plex Sans, sans-serif',
-                borderRadius: '0px',
-              }}
-            >
-              {type === 'quick' ? 'Quick Scan' : 'Deep Scan'}
-            </button>
-          ))}
-        </div>
-        <div style={{
-          marginTop: '8px',
-          fontSize: '12px',
-          color: 'var(--text-placeholder)',
-        }}>
-          {scanType === 'quick'
-            ? 'Static analysis + ML classification only'
-            : 'Full pipeline: static + ML + VT sandbox + MITRE mapping'
-          }
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+          <div
+            onClick={() => !submitting && setScanType('quick')}
+            style={{
+              padding: '16px',
+              border: scanType === 'quick' ? '2px solid var(--action-blue)' : '1px solid var(--border)',
+              background: scanType === 'quick' ? 'var(--bg-elevated)' : 'var(--bg-primary)',
+              cursor: submitting ? 'not-allowed' : 'pointer',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+              <Zap size={18} color={scanType === 'quick' ? 'var(--action-blue)' : 'var(--text-secondary)'} />
+              <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>Quick Scan</span>
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
+              Decompilation + DEX string extraction + Static ML model classification. Fast (< 5s).
+            </div>
+          </div>
+
+          <div
+            onClick={() => !submitting && setScanType('deep')}
+            style={{
+              padding: '16px',
+              border: scanType === 'deep' ? '2px solid var(--action-blue)' : '1px solid var(--border)',
+              background: scanType === 'deep' ? 'var(--bg-elevated)' : 'var(--bg-primary)',
+              cursor: submitting ? 'not-allowed' : 'pointer',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+              <Shield size={18} color={scanType === 'deep' ? 'var(--action-blue)' : 'var(--text-secondary)'} />
+              <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>Deep Scan</span>
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
+              Full pipeline: Static ML + Dynamic ML + VirusTotal lookup + MITRE technique mapping.
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Error */}
+      {/* Error display */}
       {error && (
         <div style={{
           display: 'flex',
           alignItems: 'center',
-          gap: '8px',
-          padding: '12px',
-          background: 'rgba(218, 30, 40, 0.1)',
+          gap: '10px',
+          padding: '14px 16px',
+          background: 'var(--danger-bg)',
           border: '1px solid var(--danger)',
-          marginBottom: '16px',
+          marginBottom: '20px',
           color: 'var(--danger)',
           fontSize: '13px',
         }}>
-          <AlertCircle size={14} />
-          {error}
+          <AlertCircle size={18} style={{ flexShrink: 0 }} />
+          <span>{error}</span>
         </div>
       )}
 
       {/* Submit button */}
       {!scanId && (
         <button
+          className="btn-carbon"
           onClick={handleSubmit}
           disabled={!file || submitting}
           style={{
             width: '100%',
-            padding: '12px',
-            background: (!file || submitting)
-              ? 'var(--bg-elevated)'
-              : 'var(--action-blue)',
-            color: (!file || submitting)
-              ? 'var(--text-placeholder)'
-              : '#fff',
-            border: 'none',
-            cursor: (!file || submitting) ? 'not-allowed' : 'pointer',
+            justifyContent: 'center',
+            padding: '14px',
             fontSize: '14px',
-            fontWeight: 600,
             textTransform: 'uppercase',
-            letterSpacing: '0.16px',
-            fontFamily: 'IBM Plex Sans, sans-serif',
-            borderRadius: '0px',
+            letterSpacing: '0.5px',
+            opacity: (!file || submitting) ? 0.6 : 1,
+            cursor: (!file || submitting) ? 'not-allowed' : 'pointer',
           }}
         >
-          {submitting ? 'Submitting...' : 'Submit for Analysis'}
+          {submitting ? (
+            <>
+              <RefreshCw size={16} className="animate-spin" />
+              Submitting Package to Analysis Queue...
+            </>
+          ) : (
+            'Launch Automated Scan'
+          )}
         </button>
       )}
 
-      {/* Poll status */}
+      {/* Live Polling Status */}
       {scanId && (
         <div style={{
           background: 'var(--bg-secondary)',
-          border: '1px solid var(--border)',
-          padding: '16px',
+          border: '1px solid var(--action-blue)',
+          padding: '20px',
         }}>
           <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: '12px',
+          }}>
+            <div style={{
+              fontSize: '12px',
+              color: 'var(--action-blue)',
+              letterSpacing: '0.32px',
+              textTransform: 'uppercase',
+              fontWeight: 600,
+            }}>
+              Analysis Task Running
+            </div>
+            <span className="pulse-dot" />
+          </div>
+          
+          <div className="mono" style={{
             fontSize: '12px',
             color: 'var(--text-secondary)',
-            letterSpacing: '0.32px',
-            textTransform: 'uppercase',
-            fontWeight: 600,
-            marginBottom: '8px',
+            marginBottom: '12px',
+            background: 'var(--bg-primary)',
+            padding: '6px 10px',
+            border: '1px solid var(--border-subtle)',
           }}>
-            Scan Status
+            Task ID: {scanId}
           </div>
+
           <div style={{
-            fontFamily: 'IBM Plex Mono, monospace',
-            fontSize: '12px',
-            color: 'var(--text-placeholder)',
-            marginBottom: '8px',
-          }}>
-            ID: {scanId}
-          </div>
-          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
             fontSize: '14px',
-            color: pollStatus === 'failed'
-              ? 'var(--danger)'
-              : 'var(--text-primary)',
+            color: pollStatus === 'failed' ? 'var(--danger)' : 'var(--text-primary)',
+            fontWeight: 500,
           }}>
+            {pollStatus === 'processing' || pollStatus === 'pending' ? (
+              <RefreshCw size={16} className="animate-spin" color="var(--action-blue)" />
+            ) : pollStatus === 'complete' ? (
+              <CheckCircle2 size={16} color="var(--success)" />
+            ) : null}
             {STATUS_LABELS[pollStatus] || pollStatus}
           </div>
         </div>
