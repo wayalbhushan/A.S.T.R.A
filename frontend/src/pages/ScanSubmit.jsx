@@ -259,7 +259,7 @@ export default function ScanSubmit() {
               <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>Quick Scan</span>
             </div>
             <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
-              Decompilation + DEX string extraction + Static ML model classification. Fast (< 5s).
+              Decompilation + DEX string extraction + Static ML model classification. Fast (&lt; 5s).
             </div>
           </div>
 
