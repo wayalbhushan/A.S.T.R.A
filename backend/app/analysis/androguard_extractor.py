@@ -139,11 +139,26 @@ def compute_file_hash(apk_path: str) -> str:
     return sha256.hexdigest()
 
 
-def extract(apk_path: str) -> dict:
+def load_apk(apk_path: str):
+    """
+    Runs AnalyzeAPK once and returns the (a, d, dx) tuple.
+    Raises ValueError("Failed to parse APK: ...") on failure,
+    matching the existing error style in extract().
+    """
+    logger.info("Starting static analysis on APK", path=apk_path)
+    try:
+        return AnalyzeAPK(apk_path)
+    except Exception as e:
+        logger.exception("Androguard failed to parse APK", path=apk_path, error=str(e))
+        raise ValueError(f"Failed to parse APK: {str(e)}")
+
+
+def extract(apk_path: str, analysis=None) -> dict:
     """Ingests and parses an APK, returning all static analysis attributes.
     
     Args:
         apk_path: Absolute file system path to target APK file.
+        analysis: Optional pre-loaded (a, d, dx) tuple from load_apk().
         
     Returns:
         dict containing package name, certificate info, APIs list, and string entropy.
@@ -151,13 +166,10 @@ def extract(apk_path: str) -> dict:
     Raises:
         ValueError: If Androguard fails to parse the APK format.
     """
-    logger.info("Starting static analysis on APK", path=apk_path)
-    
-    try:
-        a, d, dx = AnalyzeAPK(apk_path)
-    except Exception as e:
-        logger.exception("Androguard failed to parse APK", path=apk_path, error=str(e))
-        raise ValueError(f"Failed to parse APK: {str(e)}")
+    if analysis is not None:
+        a, d, dx = analysis
+    else:
+        a, d, dx = load_apk(apk_path)
 
     # 1. Base Metadata Extraction
     package_name = a.get_package()
@@ -295,7 +307,9 @@ def extract(apk_path: str) -> dict:
     }
 
 
-def extract_static_features(apk_path: str, static_feature_names: list) -> dict:
+def extract_static_features(
+    apk_path: str, static_feature_names: list, analysis=None
+) -> dict:
     """Extract binary feature vector matching TUANDROMD format.
     
     Returns dict mapping each feature name to 0 or 1.
@@ -303,7 +317,10 @@ def extract_static_features(apk_path: str, static_feature_names: list) -> dict:
     """
     logger.info("Extracting static TUANDROMD features from APK", path=apk_path)
     try:
-        a, d, dx = AnalyzeAPK(apk_path)
+        if analysis is not None:
+            a, d, dx = analysis
+        else:
+            a, d, dx = load_apk(apk_path)
         
         # Extract permissions
         raw_permissions = set(a.get_permissions())

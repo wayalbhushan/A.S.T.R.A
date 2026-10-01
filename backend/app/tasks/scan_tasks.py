@@ -13,7 +13,11 @@ import structlog
 
 from app.extensions import celery, db, redis_client
 from app.models.scan import ScanRecord, CertificateRecord
-from app.analysis.androguard_extractor import extract, extract_static_features
+from app.analysis.androguard_extractor import (
+    extract,
+    extract_static_features,
+    load_apk,
+)
 from app.analysis.ml_engine import predict, feature_names, predict_static, static_feature_names
 from app.analysis.vt_client import get_file_report, get_sandbox_report, submit_file
 from app.analysis.correlation import correlate
@@ -45,8 +49,17 @@ def run_scan(self, scan_id: str, apk_path: str, scan_type: str = "deep"):
 
         logger.info("scan_started", scan_id=scan_id, scan_type=scan_type)
 
+        load_start = datetime.now(timezone.utc)
+        analysis = load_apk(apk_path)
+        load_elapsed = (datetime.now(timezone.utc) - load_start).total_seconds()
+        logger.info(
+            "apk_loaded",
+            scan_id=scan_id,
+            seconds=round(load_elapsed, 2)
+        )
+
         # Step 2: Static analysis
-        androguard_data = extract(apk_path)
+        androguard_data = extract(apk_path, analysis=analysis)
         logger.info(
             "static_analysis_complete",
             scan_id=scan_id,
@@ -61,8 +74,9 @@ def run_scan(self, scan_id: str, apk_path: str, scan_type: str = "deep"):
 
         # Step 3.5: Static ML classification
         static_feature_vector = extract_static_features(
-            apk_path, static_feature_names
+            apk_path, static_feature_names, analysis=analysis
         )
+        del analysis
         static_ml_result = predict_static(static_feature_vector)
         logger.info(
             "static_ml_complete",
