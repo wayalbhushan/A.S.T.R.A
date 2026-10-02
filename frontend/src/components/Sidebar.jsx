@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, Upload, Shield,
-  Link, Radio, Cpu, Layers
+  Link, Radio
 } from 'lucide-react'
 
 const NAV_SECTIONS = [
@@ -114,39 +114,15 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      {/* Engine Status Footer */}
+      {/* Footer */}
       <div style={{
-        padding: '14px 16px',
+        padding: '12px 16px',
         borderTop: '1px solid var(--border)',
         fontSize: '11px',
-        background: 'var(--bg-primary)',
-        color: 'var(--text-secondary)',
+        color: 'var(--text-placeholder)',
+        fontFamily: 'IBM Plex Mono, monospace',
       }}>
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px',
-          fontWeight: 600,
-          color: 'var(--text-primary)',
-          marginBottom: '4px',
-        }}>
-          <Cpu size={13} color="var(--info)" />
-          ML Engine Model
-        </div>
-        <div style={{ fontSize: '10px', color: 'var(--text-placeholder)', lineHeight: '1.4' }}>
-          CICMalDroid 2020 Dataset
-        </div>
-        <div style={{
-          fontSize: '10px',
-          color: 'var(--success)',
-          fontWeight: 600,
-          marginTop: '2px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '4px',
-        }}>
-          <Layers size={10} /> 94.27% Accuracy Verified
-        </div>
+        ASTRA v1.0 | Engine v2
       </div>
     </aside>
   )

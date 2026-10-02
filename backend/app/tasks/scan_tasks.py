@@ -18,10 +18,11 @@ from app.analysis.androguard_extractor import (
     extract_static_features,
     load_apk,
 )
-from app.analysis.ml_engine import predict, feature_names, predict_static, static_feature_names
+from app.analysis.ml_engine import predict_static, static_feature_names
 from app.analysis.vt_client import get_file_report, get_sandbox_report, submit_file
 from app.analysis.correlation import correlate
 from app.analysis.cert_lookup import lookup
+from app.version import ENGINE_VERSION
 
 logger = structlog.get_logger()
 CACHE_TTL = 86400  # 24 hours
@@ -85,56 +86,7 @@ def run_scan(self, scan_id: str, apk_path: str, scan_type: str = "deep"):
             confidence=static_ml_result["confidence"]
         )
 
-        # Step 4: Dynamic ML classification
-        feature_vector = {name: 0 for name in feature_names}
-
-        androguard_permissions = androguard_data.get("permissions", [])
-        dangerous_count = androguard_data.get("dangerous_count", 0)
-        sensitive_api_count = androguard_data.get("sensitive_api_count", 0)
-
-        if "open" in feature_vector:
-            feature_vector["open"] = len(androguard_data.get("activities", []))
-        if "read" in feature_vector:
-            feature_vector["read"] = dangerous_count * 10
-        if "write" in feature_vector:
-            feature_vector["write"] = sensitive_api_count * 5
-        if "getDeviceId" in feature_vector:
-            feature_vector["getDeviceId"] = (
-                1 if "android.permission.READ_PHONE_STATE"
-                in androguard_permissions else 0
-            )
-        if "sendTextMessage" in feature_vector:
-            feature_vector["sendTextMessage"] = (
-                1 if "android.permission.SEND_SMS"
-                in androguard_permissions else 0
-            )
-        if "READ_SMS____" in feature_vector:
-            feature_vector["READ_SMS____"] = (
-                1 if "android.permission.READ_SMS"
-                in androguard_permissions else 0
-            )
-        if "SMS_SEND____" in feature_vector:
-            feature_vector["SMS_SEND____"] = (
-                1 if "android.permission.SEND_SMS"
-                in androguard_permissions else 0
-            )
-        if "ACCESS_PERSONAL_INFO___" in feature_vector:
-            feature_vector["ACCESS_PERSONAL_INFO___"] = dangerous_count
-        if "NETWORK_ACCESS____" in feature_vector:
-            feature_vector["NETWORK_ACCESS____"] = (
-                1 if "android.permission.INTERNET"
-                in androguard_permissions else 0
-            )
-
-        ml_result = predict(feature_vector)
-        logger.info(
-            "ml_classification_complete",
-            scan_id=scan_id,
-            class_name=ml_result["class_name"],
-            confidence=ml_result["confidence"]
-        )
-
-        # Step 5: VirusTotal AV report
+        # Step 4: VirusTotal AV report
         apk_hash = androguard_data["apk_hash"]
         vt_report = get_file_report(apk_hash)
 
@@ -157,7 +109,7 @@ def run_scan(self, scan_id: str, apk_path: str, scan_type: str = "deep"):
             ratio=vt_report.get("detection_ratio")
         )
 
-        # Step 6: Sandbox report (deep scan only)
+        # Step 5: Sandbox report (deep scan only)
         if scan_type == "deep":
             sandbox_report = get_sandbox_report(apk_hash)
         else:
@@ -182,10 +134,9 @@ def run_scan(self, scan_id: str, apk_path: str, scan_type: str = "deep"):
             sandbox_count=sandbox_report.get("sandbox_count", 0)
         )
 
-        # Step 7: Correlation — combine all signals
+        # Step 6: Correlation — combine all signals
         final_result = correlate(
             androguard_data=androguard_data,
-            ml_result=ml_result,
             static_ml_result=static_ml_result,
             vt_report=vt_report,
             sandbox_report=sandbox_report,
@@ -298,12 +249,12 @@ def run_scan(self, scan_id: str, apk_path: str, scan_type: str = "deep"):
             record.file_hash = apk_hash
             record.risk_score = int(final_result["risk_score"])
             record.verdict = final_result["verdict"]
-            record.ml_class = final_result["malware_family"]
-            record.ml_confidence = final_result["ml_confidence"]
+            record.ml_class = None
+            record.ml_confidence = None
             record.static_ml_class = static_ml_result["class_name"]
             record.static_ml_confidence = static_ml_result["confidence"]
             record.signal_scores = final_result.get("signal_scores")
-            record.model_agreement = final_result.get("model_agreement")
+            record.model_agreement = None
             record.signature_verdict = signature_verdict
             record.vt_detection_ratio = vt_report.get(
                 "detection_ratio", "0/0"
@@ -313,16 +264,15 @@ def run_scan(self, scan_id: str, apk_path: str, scan_type: str = "deep"):
             record.vt_data = vt_report
             record.sandbox_data = sandbox_report
             record.ml_explanation = {
-                "top_features": ml_result.get("top_features", []),
-                "all_probabilities": ml_result.get(
-                    "all_probabilities", {}
-                ),
+                "top_features": [],
+                "all_probabilities": {},
                 "static_top_features": static_ml_result.get(
                     "top_features", []
                 )
             }
             record.cert_hash = cert_hash or None
             record.package_name = androguard_data.get("package_name")
+            record.engine_version = ENGINE_VERSION
             record.completed_at = datetime.now(timezone.utc)
             session.commit()
 
@@ -333,7 +283,6 @@ def run_scan(self, scan_id: str, apk_path: str, scan_type: str = "deep"):
             r_vt_ratio = record.vt_detection_ratio
             r_completed_at = record.completed_at.isoformat()
             r_signal_scores = record.signal_scores
-            r_model_agreement = record.model_agreement
             r_static_ml_class = record.static_ml_class
             r_static_ml_confidence = record.static_ml_confidence
             r_ioc_summary = record.ioc_summary
@@ -350,6 +299,8 @@ def run_scan(self, scan_id: str, apk_path: str, scan_type: str = "deep"):
             "risk_score": final_result["risk_score"],
             "verdict": final_result["verdict"],
             "confidence_level": final_result["confidence_level"],
+            "signals_used": final_result["signals_used"],
+            "signals_total": final_result["signals_total"],
             "malware_family": final_result["malware_family"],
             "threat_summary": final_result["threat_summary"],
             "signal_scores": r_signal_scores,
@@ -361,7 +312,6 @@ def run_scan(self, scan_id: str, apk_path: str, scan_type: str = "deep"):
                 "confidence": r_static_ml_confidence,
                 "top_features": static_ml_result.get("top_features", [])
             },
-            "model_agreement": r_model_agreement or "UNKNOWN",
             "dangerous_permissions": final_result[
                 "dangerous_permissions"
             ],

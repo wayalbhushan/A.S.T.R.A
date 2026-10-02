@@ -4,6 +4,7 @@ Defines HTTP handlers for APK scan submissions, reports, certificate tracking, a
 """
 
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 import uuid
@@ -17,6 +18,7 @@ from app.extensions import db, limiter, redis_client
 from app.models.scan import CertificateRecord, ScanRecord
 from app.tasks.scan_tasks import run_scan
 from app.analysis.cert_lookup import TRUSTED_HASHES
+from app.version import ENGINE_VERSION
 
 logger = structlog.get_logger()
 api_bp = Blueprint("api", __name__)
@@ -40,6 +42,8 @@ def submit_scan():
     scan_type = request.form.get("scan_type", "deep")
     if scan_type not in ["quick", "deep"]:
         scan_type = "deep"
+
+    force = request.form.get("force", "false").lower() == "true"
 
     if "file" not in request.files:
         return jsonify({
@@ -87,11 +91,72 @@ def submit_scan():
     apk_path = os.path.join(upload_folder, safe_name)
     file.save(apk_path)
 
-    # Insert initial scan record into DB
+    # Compute SHA-256 of the saved file
+    sha256 = hashlib.sha256()
+    with open(apk_path, "rb") as f:
+        while chunk := f.read(8192):
+            sha256.update(chunk)
+    sha256_hash = sha256.hexdigest()
+
+    SCAN_TYPE_RANKS = {"quick": 1, "deep": 2}
+    requested_rank = SCAN_TYPE_RANKS.get(scan_type, 2)
+
+    if not force:
+        existing_record = db.session.execute(
+            select(ScanRecord)
+            .where(ScanRecord.file_hash == sha256_hash)
+            .order_by(ScanRecord.created_at.desc())
+        ).scalars().first()
+
+        if existing_record and existing_record.engine_version == ENGINE_VERSION:
+            existing_rank = SCAN_TYPE_RANKS.get(existing_record.scan_type, 0)
+
+            # a. Existing record with status "complete" AND rank >= requested rank
+            # (or its scan_type is NULL and requested type is quick)
+            is_satisfied = (
+                existing_rank >= requested_rank or
+                (existing_record.scan_type is None and scan_type == "quick")
+            )
+            if existing_record.status == "complete" and is_satisfied:
+                if os.path.exists(apk_path):
+                    os.remove(apk_path)
+                logger.info("scan_dedup_hit", sha256=sha256_hash, scan_id=str(existing_record.id))
+                return jsonify({
+                    "status": "success",
+                    "data": {
+                        "scan_id": str(existing_record.id),
+                        "status": "complete",
+                        "scan_type": existing_record.scan_type,
+                        "cached": True,
+                        "message": "Identical APK already analyzed. Returning existing result.",
+                        "poll_url": f"/api/v1/scan/{existing_record.id}/status"
+                    }
+                }), 200
+
+            # b. Existing record with status "pending" or "processing" AND rank >= requested rank
+            elif existing_record.status in ["pending", "processing"] and existing_rank >= requested_rank:
+                if os.path.exists(apk_path):
+                    os.remove(apk_path)
+                logger.info("scan_dedup_inflight", sha256=sha256_hash, scan_id=str(existing_record.id))
+                return jsonify({
+                    "status": "success",
+                    "data": {
+                        "scan_id": str(existing_record.id),
+                        "status": existing_record.status,
+                        "scan_type": existing_record.scan_type,
+                        "cached": False,
+                        "message": "Identical APK is already being analyzed.",
+                        "poll_url": f"/api/v1/scan/{existing_record.id}/status"
+                    }
+                }), 202
+
+    # c. Otherwise (no match, failed scan, lower scan_type, or force=true):
     record = ScanRecord(
         id=uuid.UUID(scan_id),
         file_name=secure_filename(file.filename),
-        file_hash="pending",
+        file_hash=sha256_hash,
+        scan_type=scan_type,
+        engine_version=ENGINE_VERSION,
         status="pending"
     )
     db.session.add(record)
@@ -108,6 +173,7 @@ def submit_scan():
             "scan_id": scan_id,
             "status": "pending",
             "scan_type": scan_type,
+            "cached": False,
             "message": "Scan queued. Poll status endpoint.",
             "poll_url": f"/api/v1/scan/{scan_id}/status"
         }

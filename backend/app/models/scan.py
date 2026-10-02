@@ -17,6 +17,8 @@ class ScanRecord(db.Model):
     )
     file_name: Mapped[str] = mapped_column(String(255), nullable=False)
     file_hash: Mapped[str] = mapped_column(String(64), index=True, nullable=False)  # SHA-256
+    scan_type: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    engine_version: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
     package_name: Mapped[Optional[str]] = mapped_column(String(255), index=True, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)  # pending, processing, complete, failed
     risk_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # 0 to 100
@@ -76,6 +78,8 @@ class ScanRecord(db.Model):
         file_name: str,
         file_hash: str,
         status: str = "pending",
+        scan_type: Optional[str] = None,
+        engine_version: Optional[str] = None,
         package_name: Optional[str] = None,
         risk_score: Optional[int] = None,
         verdict: Optional[str] = None,
@@ -100,6 +104,8 @@ class ScanRecord(db.Model):
         self.file_name = file_name
         self.file_hash = file_hash
         self.status = status
+        self.scan_type = scan_type
+        self.engine_version = engine_version
         self.package_name = package_name
         self.risk_score = risk_score
         self.verdict = verdict
