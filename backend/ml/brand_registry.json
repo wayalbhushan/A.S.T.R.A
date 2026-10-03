@@ -46,8 +46,12 @@
         "state bank of india"
       ],
       "weak_keywords": [],
-      "official_packages": [],
-      "cert_hashes": []
+      "official_packages": [
+        "com.sbi.lotusintouch"
+      ],
+      "cert_hashes": [
+        "435776891f2ca214e3ed167c42f60e47d96fa49e0c9ea76dbd9936fa54f15f42"
+      ]
     },
     {
       "id": "rbi",

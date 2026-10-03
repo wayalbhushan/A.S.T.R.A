@@ -364,7 +364,7 @@ def assess_impersonation(
         # Step 6: Verdict & Confidence determination
         if corroboration:
             verdict = "IMPERSONATION"
-            if any(c in corroboration for c in ("exfil", "other_brand_cert", "repackaged")):
+            if any(c in corroboration for c in ("exfil", "other_brand_cert")):
                 confidence = "HIGH"
             else:
                 confidence = "MEDIUM"
@@ -462,12 +462,12 @@ if __name__ == "__main__":
             ),
         ),
         (
-            '5. "BOI Mobile", package com.boi.ua.android, unknown cert -> IMPERSONATION, HIGH, boi (repackaged)',
+            '5. "BOI Mobile", package com.boi.ua.android, unknown cert -> IMPERSONATION, MEDIUM, boi (repackaged)',
             lambda: (
                 (r := assess_impersonation(
                     "BOI Mobile", "com.boi.ua.android", "unknown_cert"
                 ))["verdict"] == "IMPERSONATION"
-                and r["confidence"] == "HIGH"
+                and r["confidence"] == "MEDIUM"
                 and r["brand_id"] == "boi"
                 and "repackaged" in r["evidence"]["corroboration"]
             ),
@@ -535,6 +535,36 @@ if __name__ == "__main__":
                 ))["verdict"] == "IMPERSONATION"
                 and r["confidence"] == "HIGH"
                 and "other_brand_cert" in r["evidence"]["corroboration"]
+            ),
+        ),
+        (
+            '14. "YONO SBI", package com.sbi.lotusintouch, real hash -> GENUINE, sbi',
+            lambda: (
+                (r := assess_impersonation(
+                    "YONO SBI", "com.sbi.lotusintouch", "435776891f2ca214e3ed167c42f60e47d96fa49e0c9ea76dbd9936fa54f15f42"
+                ))["verdict"] == "GENUINE"
+                and r["brand_id"] == "sbi"
+            ),
+        ),
+        (
+            '15. "YONO SBI", package com.sbi.lotusintouch, random hash -> IMPERSONATION, MEDIUM, repackaged',
+            lambda: (
+                (r := assess_impersonation(
+                    "YONO SBI", "com.sbi.lotusintouch", "0" * 64
+                ))["verdict"] == "IMPERSONATION"
+                and r["confidence"] == "MEDIUM"
+                and "repackaged" in r["evidence"]["corroboration"]
+            ),
+        ),
+        (
+            '16. "SBI YONO KYC Update", package com.fake.update, random hash, secrets with Telegram -> IMPERSONATION, HIGH',
+            lambda: (
+                (r := assess_impersonation(
+                    "SBI YONO KYC Update", "com.fake.update", "1" * 64,
+                    {"telegram_bot_tokens": ["123456789:ABCdefGHIjklMNOpqrSTUvwxYZ"]}
+                ))["verdict"] == "IMPERSONATION"
+                and r["confidence"] == "HIGH"
+                and r["brand_id"] == "sbi"
             ),
         ),
     ]

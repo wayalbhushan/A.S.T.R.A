@@ -175,7 +175,6 @@
       "issuer": "Verified Indian Banking App",
       "source_file": "mBANDHAN_BANK.json"
     },
-    
     {
       "cert_hash": "cef2782b6a595a0d1934a7e614679f4d73feecf03ed6ba812c4f8ad607735ad9",
       "app_name": "NAINI NEO",
@@ -190,7 +189,6 @@
       "issuer": "Verified Indian Banking App",
       "source_file": "PNB ONE.json"
     },
-
     {
       "cert_hash": "cfdc2bc0c8df3b26fdd6dfbcddec3e00176983558a9443dadb47a9efe3a6e730",
       "app_name": "PSB UnIC",
@@ -239,6 +237,14 @@
       "package_name": "",
       "issuer": "Verified Indian Banking App",
       "source_file": "YES_BANK.json"
+    },
+    {
+      "cert_hash": "435776891f2ca214e3ed167c42f60e47d96fa49e0c9ea76dbd9936fa54f15f42",
+      "app_name": "YONO SBI",
+      "package_name": "com.sbi.lotusintouch",
+      "issuer": "Verified Indian Banking App",
+      "added_at": "2026-10-03T17:22:01.797475+00:00",
+      "source_note": "computed from APK pulled from a Play-installed device"
     }
   ]
 }

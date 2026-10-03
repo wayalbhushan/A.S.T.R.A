@@ -28,7 +28,7 @@ BRANDS = [
         "name": "State Bank of India",
         "keywords": ["sbi", "yono", "state bank of india"],
         "weak_keywords": [],
-        "source_apps": [],
+        "source_apps": ["YONO SBI"],
     },
     {
         "id": "rbi",
