@@ -313,6 +313,7 @@ def run_scan(self, scan_id: str, apk_path: str, scan_type: str = "deep", force_r
             record.file_hash = apk_hash
             record.risk_score = float(final_result["risk_score"])
             record.risk_floor = final_result.get("risk_floor_applied")
+            record.risk_floor_reason = final_result.get("risk_floor_reason")
             record.verdict = final_result["verdict"]
             record.threat_summary = final_result.get("threat_summary")
             record.confidence_level = final_result.get("confidence_level")
@@ -368,6 +369,7 @@ def run_scan(self, scan_id: str, apk_path: str, scan_type: str = "deep", force_r
             "package_name": r_package_name,
             "risk_score": final_result["risk_score"],
             "risk_floor": final_result.get("risk_floor_applied"),
+            "risk_floor_reason": final_result.get("risk_floor_reason"),
             "verdict": final_result["verdict"],
             "confidence_level": final_result["confidence_level"],
             "signals_used": final_result["signals_used"],

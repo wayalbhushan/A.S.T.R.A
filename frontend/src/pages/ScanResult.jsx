@@ -455,7 +455,15 @@ export default function ScanResult() {
               color: 'var(--text-secondary)',
               textAlign: 'center',
             }}>
-              Raised to {result.risk_floor} by the impersonation finding
+              Raised to {result.risk_floor} {
+                result.risk_floor_reason && result.risk_floor_reason.includes('impersonation') && result.risk_floor_reason.includes('virustotal')
+                  ? 'by the impersonation finding and VirusTotal detections'
+                  : result.risk_floor_reason === 'impersonation'
+                  ? 'by the impersonation finding'
+                  : result.risk_floor_reason === 'virustotal'
+                  ? 'by VirusTotal detections'
+                  : 'by an evidence rule'
+              }
             </div>
           )}
         </div>

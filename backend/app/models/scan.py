@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 from typing import Optional, List
-from sqlalchemy import String, Integer, Float, DateTime, ForeignKey, JSON
+from sqlalchemy import String, Integer, Float, DateTime, ForeignKey, JSON, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.extensions import db
@@ -21,8 +21,14 @@ class ScanRecord(db.Model):
     engine_version: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
     package_name: Mapped[Optional[str]] = mapped_column(String(255), index=True, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)  # pending, processing, complete, failed
-    risk_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # 0 to 100
+    risk_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # 0 to 100
+    risk_floor: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    risk_floor_reason: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
     verdict: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # TRUSTED, UNKNOWN, SUSPICIOUS, MALICIOUS
+    threat_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    confidence_level: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    signals_used: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     
     # ML specific fields
     ml_class: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
@@ -42,6 +48,7 @@ class ScanRecord(db.Model):
     vt_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     sandbox_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     ml_explanation: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    impersonation: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
     # Certificate association (ForeignKey with user corrections)
     cert_hash: Mapped[Optional[str]] = mapped_column(
@@ -81,8 +88,14 @@ class ScanRecord(db.Model):
         scan_type: Optional[str] = None,
         engine_version: Optional[str] = None,
         package_name: Optional[str] = None,
-        risk_score: Optional[int] = None,
+        risk_score: Optional[float] = None,
+        risk_floor: Optional[float] = None,
+        risk_floor_reason: Optional[str] = None,
         verdict: Optional[str] = None,
+        threat_summary: Optional[str] = None,
+        confidence_level: Optional[str] = None,
+        signals_used: Optional[int] = None,
+        error_message: Optional[str] = None,
         ml_class: Optional[str] = None,
         ml_confidence: Optional[float] = None,
         static_ml_class: Optional[str] = None,
@@ -96,6 +109,7 @@ class ScanRecord(db.Model):
         vt_data: Optional[dict] = None,
         sandbox_data: Optional[dict] = None,
         ml_explanation: Optional[dict] = None,
+        impersonation: Optional[dict] = None,
         cert_hash: Optional[str] = None,
         completed_at: Optional[datetime] = None
     ) -> None:
@@ -108,7 +122,13 @@ class ScanRecord(db.Model):
         self.engine_version = engine_version
         self.package_name = package_name
         self.risk_score = risk_score
+        self.risk_floor = risk_floor
+        self.risk_floor_reason = risk_floor_reason
         self.verdict = verdict
+        self.threat_summary = threat_summary
+        self.confidence_level = confidence_level
+        self.signals_used = signals_used
+        self.error_message = error_message
         self.ml_class = ml_class
         self.ml_confidence = ml_confidence
         self.static_ml_class = static_ml_class
@@ -122,6 +142,7 @@ class ScanRecord(db.Model):
         self.vt_data = vt_data
         self.sandbox_data = sandbox_data
         self.ml_explanation = ml_explanation
+        self.impersonation = impersonation
         self.cert_hash = cert_hash
         self.completed_at = completed_at
 

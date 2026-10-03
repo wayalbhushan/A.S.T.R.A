@@ -416,6 +416,7 @@ def get_scan_result(scan_id: str):
             "ml_explanation": record.ml_explanation,
             "impersonation": record.impersonation,
             "risk_floor": record.risk_floor,
+            "risk_floor_reason": record.risk_floor_reason,
             "created_at": record.created_at.isoformat(),
             "completed_at": record.completed_at.isoformat() if record.completed_at else None
         }
