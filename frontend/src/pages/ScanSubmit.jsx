@@ -3,26 +3,59 @@ import { useNavigate } from 'react-router-dom'
 import { Upload, FileText, AlertCircle, X, Shield, Zap, RefreshCw, CheckCircle2 } from 'lucide-react'
 import { api } from '../api/client'
 
+const MAX_UPLOAD_MB = Number(import.meta.env.VITE_MAX_UPLOAD_MB) || 150
+
 export default function ScanSubmit() {
   const [file, setFile] = useState(null)
   const [scanType, setScanType] = useState('deep')
+  const [forceRescan, setForceRescan] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
+  const [errorCode, setErrorCode] = useState(null)
   const [scanId, setScanId] = useState(null)
   const [pollStatus, setPollStatus] = useState(null)
   const [isDragging, setIsDragging] = useState(false)
   const pollRef = useRef(null)
+  const startTimeRef = useRef(null)
   const navigate = useNavigate()
+
+  const stopPolling = () => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current)
+      pollRef.current = null
+    }
+  }
+
+  const resetForm = () => {
+    stopPolling()
+    setFile(null)
+    setSubmitting(false)
+    setError(null)
+    setErrorCode(null)
+    setScanId(null)
+    setPollStatus(null)
+    setForceRescan(false)
+  }
 
   const validateAndSetFile = (f) => {
     if (!f) return
-    if (f.name.toLowerCase().endsWith('.apk')) {
-      setFile(f)
-      setError(null)
-    } else {
+    if (!f.name.toLowerCase().endsWith('.apk')) {
       setError('Invalid file type. Only Android Package (.apk) files are supported.')
+      setErrorCode(null)
       setFile(null)
+      return
     }
+    const maxBytes = MAX_UPLOAD_MB * 1024 * 1024
+    if (f.size > maxBytes) {
+      const mb = (f.size / (1024 * 1024)).toFixed(1)
+      setError(`This file is ${mb} MB. The maximum is ${MAX_UPLOAD_MB} MB.`)
+      setErrorCode(null)
+      setFile(null)
+      return
+    }
+    setFile(f)
+    setError(null)
+    setErrorCode(null)
   }
 
   const handleFileChange = (e) => {
@@ -52,23 +85,39 @@ export default function ScanSubmit() {
   }
 
   const startPolling = (id) => {
+    stopPolling()
     setPollStatus('pending')
+    startTimeRef.current = Date.now()
+
     pollRef.current = setInterval(async () => {
+      // Stop polling after 6 minutes (360,000 ms)
+      if (Date.now() - startTimeRef.current > 360000) {
+        stopPolling()
+        setSubmitting(false)
+        setError('This is taking longer than expected. You can leave this page and open the scan from the dashboard.')
+        return
+      }
+
       try {
         const res = await api.getScanStatus(id)
-        const status = res.data.data.status
+        const data = res.data.data
+        const status = data?.status
         setPollStatus(status)
-        if (status === 'complete' || status === 'failed') {
-          clearInterval(pollRef.current)
-          if (status === 'complete') {
-            navigate(`/scan/${id}`)
-          }
+
+        if (status === 'complete') {
+          stopPolling()
+          navigate(`/scan/${id}`)
+        } else if (status === 'failed') {
+          stopPolling()
+          setSubmitting(false)
+          setError(data?.error_message || 'Analysis failed.')
         }
-      } catch {
-        clearInterval(pollRef.current)
-        setError('Polling failed. Check your backend server connection.')
+      } catch (err) {
+        stopPolling()
+        setSubmitting(false)
+        setError(err.friendlyMessage || 'Polling failed. Check your backend server connection.')
       }
-    }, 4000)
+    }, 5000)
   }
 
   const handleSubmit = async () => {
@@ -79,34 +128,53 @@ export default function ScanSubmit() {
     const formData = new FormData()
     formData.append('file', file)
     formData.append('scan_type', scanType)
+    if (forceRescan) {
+      formData.append('force', 'true')
+    }
 
     try {
       const res = await api.submitScan(formData)
-      const id = res.data.data.scan_id
+      const data = res.data.data
+      if (data?.cached === true) {
+        navigate(`/scan/${data.scan_id}`)
+        return
+      }
+      const id = data.scan_id
       setScanId(id)
       startPolling(id)
     } catch (err) {
-      setError(
-        err.response?.data?.message || 
-        'Submission failed. Make sure the backend API server is running.'
-      )
+      const status = err.response?.status
+      let msg = ''
+      if (err.friendlyMessage) {
+        msg = err.friendlyMessage
+      } else if (err.response?.data?.message) {
+        msg = err.response.data.message
+      } else if (status === 413) {
+        msg = `File is too large. The maximum upload size is ${MAX_UPLOAD_MB} MB.`
+      } else if (status === 429) {
+        msg = 'Too many requests. Please wait and try again.'
+      } else if (!err.response) {
+        msg = 'Could not reach the server, or the upload was cut off. If the file is large, check its size and try again.'
+      } else {
+        msg = `Upload failed (HTTP ${status}).`
+      }
+      setError(msg)
+      setErrorCode(status || null)
       setSubmitting(false)
     }
   }
 
   useEffect(() => {
     return () => {
-      if (pollRef.current) {
-        clearInterval(pollRef.current)
-      }
+      stopPolling()
     }
   }, [])
 
   const STATUS_LABELS = {
-    pending: 'Queued — waiting for worker thread...',
+    pending: 'Queued - waiting for worker thread...',
     processing: 'Decompiling APK & running static/dynamic ML models...',
-    complete: 'Analysis complete — redirecting to report...',
-    failed: 'Analysis failed — please check worker logs.',
+    complete: 'Analysis complete - redirecting to report...',
+    failed: 'Analysis failed - please check worker logs.',
   }
 
   return (
@@ -218,7 +286,7 @@ export default function ScanSubmit() {
                 color: 'var(--text-placeholder)',
                 marginTop: '6px',
               }}>
-                Accepts standalone APK binaries up to 50 MB
+                Accepts standalone APK binaries up to {MAX_UPLOAD_MB} MB
               </div>
             </div>
           )}
@@ -259,7 +327,7 @@ export default function ScanSubmit() {
               <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>Quick Scan</span>
             </div>
             <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
-              Decompilation + DEX string extraction + Static ML model classification. Fast (&lt; 5s).
+              Static analysis, bank certificate check, indicator extraction, ML model and VirusTotal reputation. Usually under a minute.
             </div>
           </div>
 
@@ -278,9 +346,35 @@ export default function ScanSubmit() {
               <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>Deep Scan</span>
             </div>
             <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
-              Full pipeline: Static ML + Dynamic ML + VirusTotal lookup + MITRE technique mapping.
+              Everything in Quick plus the VirusTotal sandbox behaviour report. Usually under a minute if VirusTotal is available.
             </div>
           </div>
+        </div>
+
+        {/* Re-scan checkbox */}
+        <div style={{ marginTop: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <input
+            type="checkbox"
+            id="force-rescan"
+            checked={forceRescan}
+            onChange={(e) => setForceRescan(e.target.checked)}
+            disabled={submitting}
+            style={{
+              cursor: submitting ? 'not-allowed' : 'pointer',
+              accentColor: 'var(--action-blue)',
+            }}
+          />
+          <label
+            htmlFor="force-rescan"
+            style={{
+              fontSize: '13px',
+              color: 'var(--text-secondary)',
+              cursor: submitting ? 'not-allowed' : 'pointer',
+              userSelect: 'none',
+            }}
+          >
+            Re-scan even if this file was analyzed before
+          </label>
         </div>
       </div>
 
@@ -289,16 +383,44 @@ export default function ScanSubmit() {
         <div style={{
           display: 'flex',
           alignItems: 'center',
-          gap: '10px',
+          justifyContent: 'space-between',
+          gap: '12px',
           padding: '14px 16px',
           background: 'var(--danger-bg)',
           border: '1px solid var(--danger)',
           marginBottom: '20px',
           color: 'var(--danger)',
           fontSize: '13px',
+          flexWrap: 'wrap',
         }}>
-          <AlertCircle size={18} style={{ flexShrink: 0 }} />
-          <span>{error}</span>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+            <AlertCircle size={18} style={{ flexShrink: 0, marginTop: '2px' }} />
+            <div>
+              <span>{error}</span>
+              {errorCode && (
+                <div className="mono" style={{ fontSize: '11px', color: 'var(--text-placeholder)', marginTop: '4px' }}>
+                  HTTP {errorCode}
+                </div>
+              )}
+            </div>
+          </div>
+          {pollStatus === 'failed' && (
+            <button
+              type="button"
+              className="btn-carbon-secondary"
+              onClick={resetForm}
+              style={{
+                fontSize: '12px',
+                padding: '4px 12px',
+                border: '1px solid var(--danger)',
+                color: 'var(--danger)',
+                background: 'transparent',
+                cursor: 'pointer',
+              }}
+            >
+              Try another file
+            </button>
+          )}
         </div>
       )}
 

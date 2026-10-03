@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import uuid
+import zipfile
 from flask import Blueprint, current_app, jsonify, request, Response
 from sqlalchemy import func, select
 from werkzeug.utils import secure_filename
@@ -62,6 +63,46 @@ def allowed_file(filename: str) -> bool:
     return filename.lower().endswith(ALLOWED_EXTENSION)
 
 
+def validate_apk_archive(path: str) -> tuple[bool, str]:
+    """Validates APK archive structure without relying on libmagic header guesses.
+    
+    Checks ZIP validity, presence of AndroidManifest.xml, absence of nested bundles,
+    and sanity checks entry count and total uncompressed size. Never raises.
+    """
+    try:
+        if not zipfile.is_zipfile(path):
+            return False, "This file is not a valid ZIP or APK archive."
+
+        try:
+            with zipfile.ZipFile(path, "r") as zf:
+                names = zf.namelist()
+                if "AndroidManifest.xml" not in names:
+                    if "manifest.json" in names or any(n.lower().endswith(".apk") for n in names):
+                        return False, "This looks like a bundle (XAPK or split APK). Upload the base APK from inside it."
+                    return False, "No AndroidManifest.xml found. This does not look like an Android APK."
+
+                # Cheap sanity check only: entry count over 100000 or sum of file_size over MAX_UNCOMPRESSED_MB
+                # Note: this is a sanity check, not full zip bomb protection.
+                max_uncompressed_mb = int(os.environ.get("MAX_UNCOMPRESSED_MB", 2048))
+                max_uncompressed_bytes = max_uncompressed_mb * 1024 * 1024
+
+                infolist = zf.infolist()
+                if len(infolist) > 100000:
+                    return False, "The archive expands to an unusually large size and was rejected."
+
+                total_uncompressed = sum(info.file_size for info in infolist)
+                if total_uncompressed > max_uncompressed_bytes:
+                    return False, "The archive expands to an unusually large size and was rejected."
+
+                return True, ""
+        except zipfile.BadZipFile:
+            return False, "The archive is corrupt and could not be read."
+        except Exception:
+            return False, "The archive is corrupt and could not be read."
+    except Exception:
+        return False, "This file is not a valid ZIP or APK archive."
+
+
 @api_bp.route("/scan/submit", methods=["POST"])
 @limiter.limit("20 per hour")
 @require_api_key
@@ -99,28 +140,43 @@ def submit_scan():
             "code": 400
         }), 400
 
-    import magic
-    mime = magic.from_buffer(
-        file.read(2048), mime=True
-    )
-    file.seek(0)
-    if mime not in [
-        'application/vnd.android.package-archive',
-        'application/zip',
-        'application/java-archive'
-    ]:
-        return jsonify({
-            "status": "error",
-            "message": "File does not appear to be a valid APK",
-            "code": 400
-        }), 400
-
     scan_id = str(uuid.uuid4())
     safe_name = f"{scan_id}.apk"
     upload_folder = current_app.config["UPLOAD_FOLDER"]
     os.makedirs(upload_folder, exist_ok=True)
     apk_path = os.path.join(upload_folder, safe_name)
     file.save(apk_path)
+
+    file_size_bytes = os.path.getsize(apk_path)
+
+    # Validate by zip structure instead of libmagic header guessing
+    is_valid, validation_reason = validate_apk_archive(apk_path)
+    if not is_valid:
+        magic_type = "unknown"
+        try:
+            import magic
+            with open(apk_path, "rb") as f_diag:
+                magic_type = magic.from_buffer(f_diag.read(2048), mime=True)
+        except Exception:
+            magic_type = "error"
+
+        if os.path.exists(apk_path):
+            os.remove(apk_path)
+
+        logger.warning(
+            "upload_rejected",
+            reason=validation_reason,
+            size_bytes=file_size_bytes,
+            libmagic_type=magic_type,
+            filename=file.filename
+        )
+        return jsonify({
+            "status": "error",
+            "message": validation_reason,
+            "code": 400
+        }), 400
+
+    logger.info("upload_accepted", size_bytes=file_size_bytes, filename=file.filename)
 
     # Compute SHA-256 of the saved file
     sha256 = hashlib.sha256()

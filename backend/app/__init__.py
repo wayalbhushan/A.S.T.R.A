@@ -2,6 +2,7 @@ import os
 import sys
 import logging
 from flask import Flask, jsonify
+from werkzeug.exceptions import HTTPException
 from sqlalchemy import text
 import structlog
 
@@ -99,30 +100,34 @@ def create_app(config_name: str = None) -> Flask:
         return jsonify({'status': status, 'checks': checks}), response_code
 
     # Global Error Handlers (Coding Rule 9)
+    @app.errorhandler(HTTPException)
+    def handle_http_exception(e):
+        code = e.code or 500
+        if code == 413:
+            max_mb = app.config.get("MAX_UPLOAD_MB", 150)
+            message = f"File is too large. The maximum upload size is {max_mb} MB."
+        elif code == 429:
+            message = "Rate limit exceeded. Please try again later."
+        elif code == 404:
+            message = "Resource not found."
+        else:
+            message = e.description or "An HTTP error occurred."
+        return jsonify({
+            "status": "error",
+            "message": message,
+            "code": code
+        }), code
+
     @app.errorhandler(Exception)
     def handle_internal_server_error(e):
+        if isinstance(e, HTTPException):
+            return handle_http_exception(e)
         logger.exception("Unhandled application error occurred", error=str(e))
         return jsonify({
             "status": "error",
             "message": "An internal server error occurred.",
             "code": 500
         }), 500
-
-    @app.errorhandler(404)
-    def handle_not_found_error(e):
-        return jsonify({
-            "status": "error",
-            "message": "Resource not found.",
-            "code": 404
-        }), 404
-
-    @app.errorhandler(429)
-    def handle_rate_limit_error(e):
-        return jsonify({
-            "status": "error",
-            "message": "Rate limit exceeded. Please try again later.",
-            "code": 429
-        }), 429
 
     logger.info("Application factory instantiated successfully", env=config_name)
     return app

@@ -20,7 +20,8 @@ class Config:
 
     # File Upload Options
     UPLOAD_FOLDER = os.environ.get("UPLOAD_FOLDER", os.path.join(os.getcwd(), "uploads"))
-    MAX_CONTENT_LENGTH = int(os.environ.get("MAX_CONTENT_LENGTH", 50 * 1024 * 1024))  # 50MB
+    MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", 150))
+    MAX_CONTENT_LENGTH = MAX_UPLOAD_MB * 1024 * 1024 + 1048576
 
     # Celery configuration structure format for modern celery_init_app
     CELERY = {
