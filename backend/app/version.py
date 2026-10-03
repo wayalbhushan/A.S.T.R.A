@@ -1,4 +1,4 @@
 # Bump this whenever scoring, extraction or model logic changes,
 # so older cached results are not reused.
-# Version 12: takedown evidence for VirusTotal-flagged samples, camelCase domain filter.
-ENGINE_VERSION = "12"
+# Version 13: neutral takedown wording without a brand, stricter URL and domain noise filtering.
+ENGINE_VERSION = "13"

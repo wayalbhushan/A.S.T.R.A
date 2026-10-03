@@ -58,7 +58,8 @@ BENIGN_DOMAIN_SUFFIXES = frozenset([
     'w3.org', 'apache.org', 'openssl.org',
     'squareup.com', 'github.com', 'githubusercontent.com',
     'mozilla.org', 'jetbrains.com',
-    'bouncycastle.org', 'unity3d.com', 'unity.com'
+    'bouncycastle.org', 'unity3d.com', 'unity.com',
+    'googlesyndication.com', 'googleplex.com', 'amazon.com'
 ])
 
 VALID_TLDS = frozenset([
@@ -245,10 +246,14 @@ def extract_urls(strings: List[str]) -> List[str]:
             try:
                 parsed = urlparse(cleaned)
                 hostname = parsed.hostname
-                if hostname and _is_benign_infrastructure(hostname):
+                if not hostname:
+                    continue
+                if not _is_valid_ipv4(hostname) and "." not in hostname:
+                    continue
+                if _is_benign_infrastructure(hostname):
                     continue
             except Exception:
-                pass
+                continue
                 
             urls.add(cleaned)
             
@@ -779,6 +784,12 @@ if __name__ == '__main__':
         "debug.firebase.analytics.app",
         "os.name",
         "popupLocationInfo.top",
+        # Fix B6d: Benign infrastructure and invalid hostname filter strings
+        "http://www.amazon.com/gp/mas/dl/android?p=x",
+        "https://badad.googleplex.com/s/reportAd",
+        "http://hostname/?",
+        "googlesyndication.com",
+        "http://x.amazonaws.com/a",
     ]
     result = extract_network_iocs(sample_strings)
     print(json.dumps(result, indent=2))
@@ -801,6 +812,7 @@ if __name__ == '__main__':
     )
     print(json.dumps(entropy_result, indent=2))
 
+    res_urls = result.get("urls", [])
     res_ips = result.get("ips", [])
     res_domains = result.get("domains", [])
 
@@ -828,6 +840,12 @@ if __name__ == '__main__':
         ("debug.firebase.analytics.app NOT in domains", "debug.firebase.analytics.app" not in res_domains),
         ("os.name NOT in domains", "os.name" not in res_domains),
         ("popupLocationInfo.top NOT in domains", "popupLocationInfo.top" not in res_domains),
+        ("http://www.amazon.com/gp/mas/dl/android?p=x NOT in urls", "http://www.amazon.com/gp/mas/dl/android?p=x" not in res_urls),
+        ("https://badad.googleplex.com/s/reportAd NOT in urls", "https://badad.googleplex.com/s/reportAd" not in res_urls),
+        ("http://hostname/? NOT in urls", "http://hostname/?" not in res_urls),
+        ("googlesyndication.com NOT in domains", "googlesyndication.com" not in res_domains),
+        ("http://x.amazonaws.com/a IS in urls", "http://x.amazonaws.com/a" in res_urls),
+        ("http://evil-c2.example.com/gate.php IS in urls", "http://evil-c2.example.com/gate.php" in res_urls),
     ]
 
     print("\n--- ASSERTIONS ---")

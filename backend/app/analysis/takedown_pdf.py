@@ -407,7 +407,7 @@ def build_takedown_pdf(data: dict, compress: bool = True) -> bytes:
     # Network URLs Table (first 25, defanged)
     urls = indicators.get("urls") or []
     if urls:
-        story.append(Paragraph(f"Network URLs ({len(urls)} shown)", h2_style))
+        story.append(Paragraph("URLs (unreviewed candidates)", h2_style))
         url_data = [[Paragraph("<b>Defanged URL Candidate</b>", body_style)]]
         for u in urls[:25]:
             url_data.append([Paragraph(safe(defang(u)), mono_style)])
@@ -419,7 +419,7 @@ def build_takedown_pdf(data: dict, compress: bool = True) -> bytes:
     # Domains Table
     domains = indicators.get("domains") or []
     if domains:
-        story.append(Paragraph(f"Network Domains ({len(domains)} shown)", h2_style))
+        story.append(Paragraph("Domains (unreviewed candidates)", h2_style))
         dom_data = [[Paragraph("<b>Defanged Domain Candidate</b>", body_style)]]
         for d in domains[:25]:
             dom_data.append([Paragraph(safe(defang(d)), mono_style)])
@@ -431,7 +431,7 @@ def build_takedown_pdf(data: dict, compress: bool = True) -> bytes:
     # IPs Table
     ips = indicators.get("ips") or []
     if ips:
-        story.append(Paragraph(f"IP Addresses ({len(ips)} shown)", h2_style))
+        story.append(Paragraph("IPs (unreviewed candidates)", h2_style))
         ip_data = [[Paragraph("<b>Defanged IP Candidate</b>", body_style)]]
         for ip in ips[:25]:
             ip_data.append([Paragraph(safe(defang(ip)), mono_style)])
@@ -670,14 +670,20 @@ if __name__ == "__main__":
         print("PASS: Test g - PDF file offsets and xref tables intact (ends with %%EOF, valid startxref) for compress=False and compress=True")
         passed_tests += 1
 
-    # h. Trojan fixture builds and uncompressed bytes contain "28/67"
+    # h. Trojan fixture builds and uncompressed bytes contain "28/67", neither "banking" nor " c2 "
     pack_trojan = build_takedown_data(TEST_SCAN_TROJAN)
     pdf_trojan = build_takedown_pdf(pack_trojan, compress=False)
-    h_ok = pdf_trojan.startswith(b"%PDF") and b"28/67" in pdf_trojan
+    pdf_trojan_lower = pdf_trojan.lower()
+    h_ok = (
+        pdf_trojan.startswith(b"%PDF")
+        and b"28/67" in pdf_trojan
+        and b"banking" not in pdf_trojan_lower
+        and b" c2 " not in pdf_trojan_lower
+    )
     if h_ok:
-        print("PASS: Test h - Trojan fixture builds valid PDF and bytes contain '28/67'")
+        print("PASS: Test h - Trojan fixture builds valid PDF with '28/67' and neither 'banking' nor ' c2 '")
         passed_tests += 1
     else:
-        print(f"FAIL: Test h - Trojan fixture PDF failed (starts_pdf={pdf_trojan.startswith(b'%PDF')}, has_ratio={b'28/67' in pdf_trojan})")
+        print(f"FAIL: Test h - Trojan fixture PDF failed (starts_pdf={pdf_trojan.startswith(b'%PDF')}, has_ratio={b'28/67' in pdf_trojan}, has_banking={b'banking' in pdf_trojan_lower}, has_c2={b' c2 ' in pdf_trojan_lower})")
 
     print(f"\nFinal Result: {passed_tests}/{total_tests} tests passed.")

@@ -162,7 +162,7 @@ def _build_defanged_indicators_summary(indicators: dict) -> str:
 
     urls = indicators.get("urls") or []
     if urls:
-        parts.append(f"C2 URLs: {', '.join([defang(u) for u in urls[:3]])}")
+        parts.append(f"URLs: {', '.join([defang(u) for u in urls[:3]])}")
 
     domains = indicators.get("domains") or []
     if domains:
@@ -307,12 +307,55 @@ def _format_vt_notice_line(verdict_info: dict) -> Optional[str]:
     return f"Third-party detections (VirusTotal, not an ASTRA finding): {ratio}{label_part}."
 
 
+def _build_notice_indicator_lines(indicators: dict) -> List[str]:
+    """Builds notice indicator lines: suspected exfiltration channels or
+    absence message, followed by candidate counts if any > 0.
+    Does NOT list raw URLs, domains, or IPs.
+    """
+    lines = []
+    exfil_parts = []
+
+    tb = indicators.get("telegram_bots") or []
+    bot_ids = [b["bot_id"] for b in tb if b.get("bot_id")]
+    if bot_ids:
+        exfil_parts.append(f"Telegram Bot ID: {', '.join(bot_ids)}")
+
+    dw = indicators.get("discord_webhooks") or []
+    wh_ids = [w["webhook_id"] for w in dw if w.get("webhook_id")]
+    if wh_ids:
+        exfil_parts.append(f"Discord Webhook ID: {', '.join(wh_ids)}")
+
+    fp = indicators.get("firebase_projects") or []
+    fb_urls = [defang(p.get("url")) for p in fp if p.get("url")]
+    if fb_urls:
+        exfil_parts.append(f"Firebase: {', '.join(fb_urls)}")
+
+    if exfil_parts:
+        lines.append(f"Suspected exfiltration channels: {'; '.join(exfil_parts)}")
+    else:
+        lines.append(
+            "ASTRA static analysis did not identify an exfiltration channel (Telegram bot, Discord webhook or Firebase project)."
+        )
+
+    counts = indicators.get("counts") or {}
+    u = counts.get("urls", 0)
+    d = counts.get("domains", 0)
+    i = counts.get("ips", 0)
+    if (u + d + i) > 0:
+        lines.append(
+            f"Unreviewed candidates in the attached report: {u} URLs, {d} domains, {i} IPs. These may include legitimate services."
+        )
+
+    return lines
+
+
 def _build_cert_in_notice(
     channels: dict,
     sample: dict,
     verdict_info: dict,
     brand: Optional[str],
-    indicators_summary: str,
+    has_brand: bool,
+    indicators: dict,
     strength: str,
 ) -> dict:
     ch = channels.get("cert_in", {})
@@ -322,6 +365,13 @@ def _build_cert_in_notice(
     verdict = verdict_info.get("verdict") or "UNKNOWN"
     risk = verdict_info.get("risk_score")
 
+    if has_brand:
+        subject = f"[Incident Report] Malicious Banking APK: {pkg}"
+        intro = "We are reporting an incident summary for a malicious Android banking application."
+    else:
+        subject = f"[Incident Report] Malicious Android APK: {pkg}"
+        intro = "We are reporting a malicious Android application identified through third-party antivirus detections and automated static analysis."
+
     lines = [
         "[ANALYST: confirm before sending]",
     ]
@@ -329,16 +379,17 @@ def _build_cert_in_notice(
         lines.append("Evidence strength is PARTIAL. Verify against the official app before sending.")
     lines.extend([
         "To: Incident Response Team, CERT-In,",
-        "We are reporting an incident summary for a malicious Android banking application.",
+        intro,
         f"Sample: {file_name} (Package: {pkg}, SHA-256: {sha})",
         f"Verdict: {verdict}, Risk Score: {risk}/100",
     ])
     vt_line = _format_vt_notice_line(verdict_info)
     if vt_line:
         lines.append(vt_line)
+    if has_brand and brand:
+        lines.append(f"Impersonated Brand: {brand}")
+    lines.extend(_build_notice_indicator_lines(indicators))
     lines.extend([
-        f"Impersonated Brand: {brand}" if brand else "Target: Indian banking and financial service users",
-        f"Observed Indicators: {indicators_summary}",
         "We request guidance and coordination for incident mitigation and ecosystem alerting.",
         "Source: ASTRA automated static analysis, unreviewed.",
     ])
@@ -347,7 +398,7 @@ def _build_cert_in_notice(
         "label": ch.get("label", "CERT-In"),
         "channel": ch.get("channel", "incident@cert-in.org.in"),
         "verified": ch.get("verified", False),
-        "subject": f"[Incident Report] Malicious Banking APK: {pkg}",
+        "subject": subject,
         "body": "\n".join(lines),
     }
 
@@ -357,13 +408,23 @@ def _build_i4c_notice(
     sample: dict,
     verdict_info: dict,
     brand: Optional[str],
-    indicators_summary: str,
+    has_brand: bool,
+    indicators: dict,
     strength: str,
 ) -> dict:
     ch = channels.get("i4c_ncrp", {})
     file_name = sample.get("file_name") or "Unknown"
     pkg = sample.get("package_name") or "Unknown"
     sha = sample.get("sha256") or "Unknown"
+    verdict = verdict_info.get("verdict") or "UNKNOWN"
+    risk = verdict_info.get("risk_score")
+
+    if has_brand:
+        subject = f"[Cyber Crime Complaint] Fraudulent Banking APK: {pkg}"
+        intro = "Cyber crime complaint regarding distribution of fraudulent Android malware."
+    else:
+        subject = f"[Cyber Crime Complaint] Malicious Android APK: {pkg}"
+        intro = "We are reporting a malicious Android application identified through third-party antivirus detections and automated static analysis."
 
     lines = [
         "[ANALYST: confirm before sending]",
@@ -372,15 +433,17 @@ def _build_i4c_notice(
         lines.append("Evidence strength is PARTIAL. Verify against the official app before sending.")
     lines.extend([
         "To: National Cyber Crime Reporting Portal (I4C),",
-        "Cyber crime complaint regarding distribution of fraudulent Android malware.",
+        intro,
         f"Sample: {file_name} (Package: {pkg}, SHA-256: {sha})",
+        f"Verdict: {verdict}, Risk Score: {risk}/100",
     ])
     vt_line = _format_vt_notice_line(verdict_info)
     if vt_line:
         lines.append(vt_line)
+    if has_brand and brand:
+        lines.append(f"Claimed Brand: {brand}")
+    lines.extend(_build_notice_indicator_lines(indicators))
     lines.extend([
-        f"Claimed Brand: {brand}" if brand else "Target: Banking customer credentials",
-        f"Indicators: {indicators_summary}",
         "Requesting recording of this complaint and coordinated inter-agency action.",
         "Source: ASTRA automated static analysis, unreviewed.",
     ])
@@ -389,7 +452,7 @@ def _build_i4c_notice(
         "label": ch.get("label", "I4C / National Cyber Crime Reporting Portal"),
         "channel": ch.get("channel", "cybercrime.gov.in, helpline 1930"),
         "verified": ch.get("verified", False),
-        "subject": f"[Cyber Crime Complaint] Fraudulent Banking APK: {pkg}",
+        "subject": subject,
         "body": "\n".join(lines),
     }
 
@@ -588,6 +651,7 @@ def build_takedown_data(scan: Optional[dict]) -> dict:
         imp = scan.get("impersonation")
         impersonation_dict = imp if isinstance(imp, dict) else None
         brand_name = impersonation_dict.get("brand_name") if impersonation_dict else None
+        has_brand = bool(impersonation_dict and impersonation_dict.get("verdict") == "IMPERSONATION" and brand_name)
 
         # Dangerous Permissions
         dangerous_permissions = (
@@ -598,7 +662,7 @@ def build_takedown_data(scan: Optional[dict]) -> dict:
 
         # Recommended Actions
         recommended_actions = []
-        if brand_name:
+        if has_brand:
             recommended_actions.append(
                 f"Notify the official fraud and security team of {brand_name} regarding active mobile application impersonation."
             )
@@ -619,7 +683,7 @@ def build_takedown_data(scan: Optional[dict]) -> dict:
             recommended_actions.append("Immediately revoke and rotate exposed AWS credentials.")
         if raw_ips or raw_domains:
             recommended_actions.append(
-                "Block identified C2 IP addresses and network domains across enterprise firewalls and secure DNS resolvers."
+                "Block identified IP addresses and network domains across enterprise firewalls and secure DNS resolvers."
             )
         recommended_actions.append(
             "Coordinate incident reporting with CERT-In and submit a complaint via the National Cyber Crime Reporting Portal (cybercrime.gov.in)."
@@ -646,12 +710,12 @@ def build_takedown_data(scan: Optional[dict]) -> dict:
 
         # Regulatory and bank notices
         notices.append(
-            _build_cert_in_notice(channels, sample, verdict_info, brand_name, indicators_summary, strength)
+            _build_cert_in_notice(channels, sample, verdict_info, brand_name, has_brand, indicators, strength)
         )
         notices.append(
-            _build_i4c_notice(channels, sample, verdict_info, brand_name, indicators_summary, strength)
+            _build_i4c_notice(channels, sample, verdict_info, brand_name, has_brand, indicators, strength)
         )
-        if impersonation_dict and impersonation_dict.get("verdict") == "IMPERSONATION":
+        if has_brand:
             notices.append(
                 _build_bank_notice(channels, sample, verdict_info, brand_name, indicators_summary, strength)
             )
@@ -771,13 +835,27 @@ TEST_SCAN_TROJAN = {
     "confidence_level": "HIGH",
     "signals_used": 2,
     "impersonation": None,
-    "androguard_data": {}
+    "androguard_data": {
+        "extracted_iocs": {
+            "network": {
+                "urls": [
+                    "http://www.amazon.com/x",
+                    "https://badad.googleplex.com/y",
+                    "http://hostname/?"
+                ],
+                "domains": [
+                    "googlesyndication.com"
+                ],
+                "ips": []
+            }
+        }
+    }
 }
 
 
 if __name__ == "__main__":
     print("Running ASTRA Takedown Evidence Pack Test Suite...")
-    total_tests = 6
+    total_tests = 8
     passed_tests = 0
 
     scan_1 = TEST_SCAN_STRONG
@@ -888,23 +966,48 @@ if __name__ == "__main__":
     t5_notices_ok = notice_keys_5 == {"cert_in", "i4c_ncrp"}
     t5_no_bank_notice = not any(n["key"] == "bank" for n in pack_5.get("notices", []))
     t5_no_bank_in_actions = not any("bank" in act.lower() for act in pack_5.get("recommended_actions", []))
+    t5_no_bank_in_bodies = not any("bank" in n["body"].lower() for n in pack_5.get("notices", []))
 
-    if t5_eligible and t5_strength == "STRONG" and t5_notices_ok and t5_no_bank_notice and t5_no_bank_in_actions:
+    if t5_eligible and t5_strength == "STRONG" and t5_notices_ok and t5_no_bank_notice and t5_no_bank_in_actions and t5_no_bank_in_bodies:
         print("PASS: Test 5 - Signal MALICIOUS with no brand has no bank notice, only cert_in and i4c_ncrp")
         passed_tests += 1
     else:
-        print(f"FAIL: Test 5 - Signal MALICIOUS (eligible={t5_eligible}, strength={t5_strength}, keys={notice_keys_5}, no_bank={t5_no_bank_notice}, no_bank_act={t5_no_bank_in_actions})")
+        print(f"FAIL: Test 5 - Signal MALICIOUS (eligible={t5_eligible}, strength={t5_strength}, keys={notice_keys_5}, no_bank={t5_no_bank_notice}, no_bank_act={t5_no_bank_in_actions}, no_bank_body={t5_no_bank_in_bodies})")
 
-    # Test 6: Generic trojan scan dict with VirusTotal detection
+    # Test 6 (Test a): Generic trojan fixture with network indicators
     scan_6 = TEST_SCAN_TROJAN
     t6_eligible, _ = is_eligible(scan_6)
     t6_strength = evidence_strength(scan_6)
     pack_6 = build_takedown_data(scan_6)
+    pack_6_json_lower = json.dumps(pack_6).lower()
     notice_keys_6 = {n["key"] for n in pack_6.get("notices", [])}
     t6_keys_ok = notice_keys_6 == {"cert_in", "i4c_ncrp"}
-    t6_bodies_contain_ratio = all("28/67" in n["body"] for n in pack_6.get("notices", []))
-    t6_bodies_contain_label = all("trojan.metasploit/fnaa" in n["body"] for n in pack_6.get("notices", []))
-    t6_no_impersonating = not any("impersonating" in n["body"].lower() for n in pack_6.get("notices", []))
+
+    t6_no_bank_in_pack = "bank" not in pack_6_json_lower
+    t6_no_c2_in_notices = not any(
+        "c2" in n.get("subject", "").lower() or "c2" in n.get("body", "").lower()
+        for n in pack_6.get("notices", [])
+    )
+    t6_no_amazon_in_notices = not any(
+        "amazon" in n.get("subject", "").lower() or "amazon" in n.get("body", "").lower()
+        for n in pack_6.get("notices", [])
+    )
+    t6_no_googleplex_in_notices = not any(
+        "googleplex" in n.get("subject", "").lower() or "googleplex" in n.get("body", "").lower()
+        for n in pack_6.get("notices", [])
+    )
+    t6_bodies_did_not_id = all(
+        "did not identify an exfiltration channel" in n["body"]
+        for n in pack_6.get("notices", [])
+    )
+    t6_bodies_unreviewed = all(
+        "Unreviewed candidates" in n["body"]
+        for n in pack_6.get("notices", [])
+    )
+    t6_bodies_ratio = all(
+        "28/67" in n["body"]
+        for n in pack_6.get("notices", [])
+    )
 
     scan_6_partial = dict(scan_6)
     scan_6_partial["risk_floor_reason"] = "impersonation"
@@ -915,14 +1018,66 @@ if __name__ == "__main__":
         t6_eligible
         and t6_strength == "STRONG"
         and t6_keys_ok
-        and t6_bodies_contain_ratio
-        and t6_bodies_contain_label
-        and t6_no_impersonating
+        and t6_no_bank_in_pack
+        and t6_no_c2_in_notices
+        and t6_no_amazon_in_notices
+        and t6_no_googleplex_in_notices
+        and t6_bodies_did_not_id
+        and t6_bodies_unreviewed
+        and t6_bodies_ratio
         and t6_partial_strength == "PARTIAL"
     ):
-        print("PASS: Test 6 - Generic trojan scan with VirusTotal is STRONG with cert_in and i4c_ncrp notices")
+        print("PASS: Test 6 (Test a) - Generic trojan fixture has neutral wording, no bank, no C2/amazon/googleplex, unreviewed candidate counts")
         passed_tests += 1
     else:
-        print(f"FAIL: Test 6 - Generic trojan (eligible={t6_eligible}, strength={t6_strength}, keys={notice_keys_6}, ratio={t6_bodies_contain_ratio}, label={t6_bodies_contain_label}, no_imp={t6_no_impersonating}, partial_strength={t6_partial_strength})")
+        print(f"FAIL: Test 6 (eligible={t6_eligible}, strength={t6_strength}, keys={notice_keys_6}, no_bank={t6_no_bank_in_pack}, no_c2={t6_no_c2_in_notices}, no_amazon={t6_no_amazon_in_notices}, no_gp={t6_no_googleplex_in_notices}, did_not_id={t6_bodies_did_not_id}, unrev={t6_bodies_unreviewed}, ratio={t6_bodies_ratio}, partial={t6_partial_strength})")
+
+    # Test 7 (Test b): No brand but Telegram token present (MALICIOUS from signals)
+    scan_7 = {
+        "id": "77777777-7777-7777-7777-777777777777",
+        "file_name": "malware_tg.apk",
+        "package_name": "com.unknown.tgmalware",
+        "verdict": "MALICIOUS",
+        "risk_score": 80.0,
+        "risk_floor": None,
+        "impersonation": None,
+        "androguard_data": {
+            "extracted_iocs": {
+                "secrets": {
+                    "telegram_bot_tokens": ["987654321:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw"]
+                }
+            }
+        }
+    }
+    pack_7 = build_takedown_data(scan_7)
+    notices_7 = {n["key"]: n for n in pack_7.get("notices", [])}
+    t7_cert_body = notices_7.get("cert_in", {}).get("body", "")
+    t7_i4c_body = notices_7.get("i4c_ncrp", {}).get("body", "")
+    t7_ok = (
+        "987654321" in t7_cert_body
+        and "987654321" in t7_i4c_body
+        and "did not identify" not in t7_cert_body
+        and "did not identify" not in t7_i4c_body
+    )
+    if t7_ok:
+        print("PASS: Test 7 (Test b) - No brand but Telegram token lists bot ID and does not say 'did not identify'")
+        passed_tests += 1
+    else:
+        print(f"FAIL: Test 7 (Test b) - Telegram bot ID in bodies: cert_has={'987654321' in t7_cert_body}, i4c_has={'987654321' in t7_i4c_body}, no_dn_id={'did not identify' not in t7_cert_body})")
+
+    # Test 8 (Test c): Strong impersonation fixture names brand and mentions bank, exfil notices exist
+    scan_8 = TEST_SCAN_STRONG
+    pack_8 = build_takedown_data(scan_8)
+    notices_8 = {n["key"]: n for n in pack_8.get("notices", [])}
+    t8_cert_body = notices_8.get("cert_in", {}).get("body", "")
+    t8_has_brand_name = "State Bank of India" in t8_cert_body
+    t8_mentions_bank = "banking" in t8_cert_body.lower() or "bank" in t8_cert_body.lower()
+    t8_has_exfil_notices = {"telegram", "discord", "firebase_google"}.issubset(set(notices_8.keys()))
+
+    if t8_has_brand_name and t8_mentions_bank and t8_has_exfil_notices:
+        print("PASS: Test 8 (Test c) - Strong impersonation fixture names brand, mentions bank, and includes exfil notices")
+        passed_tests += 1
+    else:
+        print(f"FAIL: Test 8 (Test c) - brand_in_cert={t8_has_brand_name}, bank_in_cert={t8_mentions_bank}, exfil_notices={t8_has_exfil_notices})")
 
     print(f"\nFinal Result: {passed_tests}/{total_tests} tests passed.")
