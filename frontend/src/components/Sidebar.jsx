@@ -85,7 +85,7 @@ export default function Sidebar() {
               <NavLink
                 key={to}
                 to={to}
-                end={to === '/'}
+                end
                 style={({ isActive }) => ({
                   display: 'flex',
                   alignItems: 'center',

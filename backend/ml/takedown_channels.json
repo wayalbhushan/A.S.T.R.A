@@ -1,0 +1,35 @@
+{
+  "note": "Contact channels are starting points. Verify each one on the official site before sending.",
+  "channels": {
+    "telegram": {
+      "label": "Telegram abuse team",
+      "channel": "abuse@telegram.org",
+      "verified": false
+    },
+    "discord": {
+      "label": "Discord Trust and Safety",
+      "channel": "Discord abuse report form (find the current URL on discord.com)",
+      "verified": false
+    },
+    "firebase_google": {
+      "label": "Google Cloud / Firebase abuse team",
+      "channel": "Google Cloud abuse report form (find the current URL in Google Cloud support)",
+      "verified": false
+    },
+    "cert_in": {
+      "label": "CERT-In",
+      "channel": "incident@cert-in.org.in",
+      "verified": false
+    },
+    "i4c_ncrp": {
+      "label": "I4C / National Cyber Crime Reporting Portal",
+      "channel": "cybercrime.gov.in, helpline 1930",
+      "verified": false
+    },
+    "bank": {
+      "label": "Impacted bank fraud and security team",
+      "channel": "The bank's official fraud reporting contact",
+      "verified": false
+    }
+  }
+}

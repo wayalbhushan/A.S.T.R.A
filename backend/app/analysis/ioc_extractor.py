@@ -19,6 +19,8 @@ logger = structlog.get_logger()
 # Compiled regex constants (module level, compiled once)
 URL_RE = re.compile(r'https?://[^\s"\'<>\\)\]}]{4,2048}')
 IPV4_RE = re.compile(r'\b(?:(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\b')
+IP_PORT_RE = re.compile(r'(?<![\d.])(\d{1,3}(?:\.\d{1,3}){3}):(\d{1,5})(?!\d)')
+BARE_QUAD_RE = re.compile(r'(?<![\d.])(\d{1,3}(?:\.\d{1,3}){3})(?![\d.])')
 DOMAIN_RE = re.compile(r'\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}\b')
 
 # Secret and third-party service patterns
@@ -61,17 +63,42 @@ BENIGN_DOMAIN_SUFFIXES = frozenset([
 
 VALID_TLDS = frozenset([
     # Generic
-    'com', 'org', 'net', 'info', 'biz', 'name', 'pro',
+    'com', 'org', 'net', 'info', 'biz', 'pro',
     # Tech-favored
     'io', 'co', 'app', 'dev', 'me', 'xyz', 'top', 'site',
     'online', 'tech', 'club', 'space', 'website', 'live',
     'store', 'fun', 'icu', 'link', 'click',
     # Country codes commonly seen in both legit and malicious
     # infra (keep this list short and high-frequency only)
-    'in', 'us', 'uk', 'ru', 'cn', 'de', 'fr', 'br', 'id',
-    'pk', 'ng', 'ua', 'tk', 'cc', 'ws', 'to', 'gq', 'ml', 'ga',
+    'in', 'us', 'uk', 'ru', 'cn', 'de', 'fr', 'br',
+    'pk', 'ng', 'ua', 'tk', 'cc', 'ws', 'gq', 'ml', 'ga',
     'cf',
 ])
+
+CODE_PREFIXES = (
+    "android.", "androidx.", "java.", "javax.",
+    "kotlin.", "kotlinx.", "com.google.android.", "com.android.",
+    "org.apache.", "org.json.", "okhttp3.", "dalvik.", "sun.",
+    "com.facebook.", "debug.", "gcm.", "firebase."
+)
+
+ALLOW_SHORT = frozenset(["t.me"])
+
+CODE_WORDS = frozenset([
+    "class", "java", "javaclass", "klass", "clazz",
+    "type", "field", "method", "function", "descriptor", "entry",
+    "package", "plugin", "argument", "classifier",
+    "activity", "frame", "mvp", "fragment"
+])
+
+
+def _is_valid_ipv4(candidate: str) -> bool:
+    """Returns True if candidate is a valid IPv4 address string."""
+    try:
+        addr = ipaddress.ip_address(candidate)
+        return isinstance(addr, ipaddress.IPv4Address)
+    except ValueError:
+        return False
 
 
 def _has_valid_tld(candidate: str) -> bool:
@@ -230,22 +257,55 @@ def extract_urls(strings: List[str]) -> List[str]:
 
 def extract_ips(strings: List[str]) -> List[str]:
     """Scan every string, return deduplicated sorted list of public
-    IPv4 addresses only. Filter out anything where
-    _is_private_or_reserved_ip() returns True.
-    Return [] on empty input.
+    IPv4 addresses accepted ONLY by context:
+      a. Hostname of a URL found in the strings
+      b. In ip:port format where port is 1 to 65535
+    Filtered by _is_private_or_reserved_ip.
+    Bare dotted numbers with no URL or port context are never IPs.
+    Any match touching another digit or dot on either side is rejected.
+    Logs debug count of bare dotted quads that were ignored.
     """
     if not strings:
         return []
-    
+
     ips = set()
+    ignored_bare_count = 0
+
     for s in strings:
         if not s:
             continue
-        matches = IPV4_RE.findall(s)
-        for m in matches:
-            if not _is_private_or_reserved_ip(m):
-                ips.add(m)
-                
+
+        # a. URL context: check hostnames of URLs found in the string
+        url_matches = URL_RE.findall(s)
+        for url_m in url_matches:
+            cleaned = url_m.rstrip(".,;)]}'\"")
+            try:
+                parsed = urlparse(cleaned)
+                hostname = parsed.hostname
+                if hostname and _is_valid_ipv4(hostname):
+                    if not _is_private_or_reserved_ip(hostname):
+                        ips.add(hostname)
+            except Exception:
+                pass
+
+        # b. ip:port context: port 1 to 65535
+        port_matches = IP_PORT_RE.findall(s)
+        for ip_cand, port_cand in port_matches:
+            try:
+                port = int(port_cand)
+                if 1 <= port <= 65535 and _is_valid_ipv4(ip_cand):
+                    if not _is_private_or_reserved_ip(ip_cand):
+                        ips.add(ip_cand)
+            except (ValueError, OverflowError):
+                pass
+
+        # Count bare dotted quads that were ignored
+        quad_matches = BARE_QUAD_RE.findall(s)
+        for quad in quad_matches:
+            if _is_valid_ipv4(quad) and quad not in ips:
+                ignored_bare_count += 1
+
+    logger.debug("bare_dotted_quads_ignored", count=ignored_bare_count)
     return sorted(list(ips))
 
 
@@ -280,7 +340,11 @@ def extract_domains(
             # 1. First check _has_valid_tld(m)
             if not _has_valid_tld(m):
                 continue
-                
+
+            # Reject candidate if any label contains camelCase (lowercase followed by uppercase)
+            if any(re.search(r'[a-z].*[A-Z]', lbl) for lbl in m.split('.')):
+                continue
+
             m_lower = m.lower()
             
             # 2. Keep the existing exclude_hosts check
@@ -299,6 +363,19 @@ def extract_domains(
                 full_identifier = match_obj.group(0)
                 
             if _looks_like_code_identifier(full_identifier):
+                continue
+
+            # b. Reject candidates starting with code prefixes
+            if m_lower.startswith(CODE_PREFIXES):
+                continue
+
+            # c. Reject if second-level label length is 1 unless in ALLOW_SHORT
+            labels = m_lower.split('.')
+            if len(labels) >= 2 and len(labels[-2]) == 1 and m_lower not in ALLOW_SHORT:
+                continue
+
+            # d. Reject if any label is in CODE_WORDS
+            if any(lbl in CODE_WORDS for lbl in labels):
                 continue
                 
             domains.add(m)
@@ -677,7 +754,31 @@ if __name__ == '__main__':
         "AbstractStream.request",
         "AccessibilityNodeInfo.roleDescription",
         "com.example.evil.C2Handler",
-        "legit-domain.example.org"
+        "legit-domain.example.org",
+        # New test strings
+        "2.5.4.8",
+        "1.3.6.1.4.1.311",
+        "version 3.1.3.3",
+        "http://45.67.89.10/gate.php",
+        "connect 91.108.4.5:8443 now",
+        "http://192.168.1.5/x",
+        "android.app",
+        "type.name",
+        "google.to",
+        "gcm.n.link",
+        "com.google.app.id",
+        "mail.badactor.top",
+        "t.me",
+        "api.telegram.org",
+        # Fix 3: Subdomain precision strings
+        "user.fakebank.top",
+        "store.badsite.com",
+        "id.evil-sbi.top",
+        "analytics.tracker-c2.xyz",
+        "appzillon.plugin.store",
+        "debug.firebase.analytics.app",
+        "os.name",
+        "popupLocationInfo.top",
     ]
     result = extract_network_iocs(sample_strings)
     print(json.dumps(result, indent=2))
@@ -699,3 +800,43 @@ if __name__ == '__main__':
         already_matched=["AKIAIOSFODNN7EXAMPLE found in strings"]
     )
     print(json.dumps(entropy_result, indent=2))
+
+    res_ips = result.get("ips", [])
+    res_domains = result.get("domains", [])
+
+    assertions = [
+        ("2.5.4.8 NOT in ips", "2.5.4.8" not in res_ips),
+        ("1.3.6.1.4.1.311 NOT in ips", "1.3.6.1.4.1.311" not in res_ips and "1.3.6.1" not in res_ips),
+        ("version 3.1.3.3 -> NOT in ips", "3.1.3.3" not in res_ips),
+        ("http://45.67.89.10/gate.php -> 45.67.89.10 IS in ips", "45.67.89.10" in res_ips),
+        ("connect 91.108.4.5:8443 now -> 91.108.4.5 IS in ips", "91.108.4.5" in res_ips),
+        ("http://192.168.1.5/x -> 192.168.1.5 NOT in ips (private)", "192.168.1.5" not in res_ips),
+        ("android.app NOT in domains", "android.app" not in res_domains),
+        ("type.name NOT in domains", "type.name" not in res_domains),
+        ("google.to NOT in domains", "google.to" not in res_domains),
+        ("gcm.n.link NOT in domains", "gcm.n.link" not in res_domains),
+        ("com.google.app.id NOT in domains", "com.google.app.id" not in res_domains),
+        ("mail.badactor.top IN domains", "mail.badactor.top" in res_domains),
+        ("legit-domain.example.org IN domains", "legit-domain.example.org" in res_domains),
+        ("t.me IN domains", "t.me" in res_domains),
+        ("api.telegram.org IN domains", "api.telegram.org" in res_domains),
+        ("user.fakebank.top IN domains", "user.fakebank.top" in res_domains),
+        ("store.badsite.com IN domains", "store.badsite.com" in res_domains),
+        ("id.evil-sbi.top IN domains", "id.evil-sbi.top" in res_domains),
+        ("analytics.tracker-c2.xyz IN domains", "analytics.tracker-c2.xyz" in res_domains),
+        ("appzillon.plugin.store NOT in domains", "appzillon.plugin.store" not in res_domains),
+        ("debug.firebase.analytics.app NOT in domains", "debug.firebase.analytics.app" not in res_domains),
+        ("os.name NOT in domains", "os.name" not in res_domains),
+        ("popupLocationInfo.top NOT in domains", "popupLocationInfo.top" not in res_domains),
+    ]
+
+    print("\n--- ASSERTIONS ---")
+    all_passed = True
+    for desc, passed in assertions:
+        status = "PASS" if passed else "FAIL"
+        print(f"[{status}] {desc}")
+        if not passed:
+            all_passed = False
+
+    if not all_passed:
+        raise SystemExit(1)

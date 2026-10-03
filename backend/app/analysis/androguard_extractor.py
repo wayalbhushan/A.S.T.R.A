@@ -9,6 +9,7 @@ import math
 from statistics import mean
 import OpenSSL
 import structlog
+from celery.exceptions import SoftTimeLimitExceeded
 from androguard.misc import AnalyzeAPK
 from app.analysis.ioc_extractor import (
     extract_network_iocs,
@@ -17,6 +18,12 @@ from app.analysis.ioc_extractor import (
 )
 
 logger = structlog.get_logger()
+
+
+class APKParseError(ValueError):
+    """Raised when an APK cannot be parsed due to corrupt or invalid package structure."""
+    pass
+
 
 DANGEROUS_PERMISSIONS = [
     "android.permission.READ_SMS",
@@ -142,15 +149,16 @@ def compute_file_hash(apk_path: str) -> str:
 def load_apk(apk_path: str):
     """
     Runs AnalyzeAPK once and returns the (a, d, dx) tuple.
-    Raises ValueError("Failed to parse APK: ...") on failure,
-    matching the existing error style in extract().
+    Raises APKParseError("Failed to parse APK: ...") on failure.
     """
     logger.info("Starting static analysis on APK", path=apk_path)
     try:
         return AnalyzeAPK(apk_path)
+    except SoftTimeLimitExceeded:
+        raise
     except Exception as e:
         logger.exception("Androguard failed to parse APK", path=apk_path, error=str(e))
-        raise ValueError(f"Failed to parse APK: {str(e)}")
+        raise APKParseError(f"Failed to parse APK: {str(e)}")
 
 
 def extract(apk_path: str, analysis=None) -> dict:

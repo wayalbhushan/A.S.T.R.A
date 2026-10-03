@@ -46,12 +46,11 @@ def init_extensions(app):
     # Migration initialization
     migrate.init_app(app, db)
     
-    # Configure Limiter storage dynamically from REDIS_URL (Task 5)
+    # Rate limiter storage in Redis
     import os
-    if "REDIS_URL" not in app.config:
-        app.config["REDIS_URL"] = os.environ.get("REDIS_URL", app.config.get("CACHE_REDIS_URL", "redis://redis:6379/2"))
-    
-    limiter.storage_uri = app.config["REDIS_URL"]
+    app.config["RATELIMIT_STORAGE_URI"] = os.environ.get(
+        "RATELIMIT_STORAGE_URI", "redis://redis:6379/3"
+    )
     limiter.init_app(app)
     
     # Re-initialize Redis client connection pool using the CACHE_REDIS_URL

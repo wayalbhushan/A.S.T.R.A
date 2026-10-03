@@ -455,6 +455,7 @@ def _get_eligible_takedown_scan(scan_id: str):
             "code": 409
         }), 409)
 
+    vt_threat_label = (((record.vt_data or {}).get("intel") or {}).get("threat") or {}).get("label")
     scan_dict = {
         "id": str(record.id),
         "file_name": record.file_name,
@@ -463,12 +464,14 @@ def _get_eligible_takedown_scan(scan_id: str):
         "verdict": record.verdict,
         "risk_score": record.risk_score,
         "risk_floor": record.risk_floor,
+        "risk_floor_reason": record.risk_floor_reason,
         "confidence_level": record.confidence_level,
         "threat_summary": record.threat_summary,
         "signals_used": record.signals_used,
         "signal_scores": record.signal_scores,
         "signature_verdict": record.signature_verdict,
         "vt_detection_ratio": record.vt_detection_ratio,
+        "vt_threat_label": vt_threat_label,
         "impersonation": record.impersonation,
         "androguard_data": record.androguard_data,
         "engine_version": record.engine_version,

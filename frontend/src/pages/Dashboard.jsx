@@ -20,7 +20,7 @@ export default function Dashboard() {
     setLoading(true)
     api.getStats()
       .then(res => setStats(res.data.data))
-      .catch(err => setError(err.message))
+      .catch(err => setError(err.friendlyMessage || err.message))
       .finally(() => setLoading(false))
   }
 
@@ -55,15 +55,23 @@ export default function Dashboard() {
   )
 
   const recentScans = stats?.recent_scans || []
+  const flaggedCount = (stats?.malicious_count || 0) + (stats?.suspicious_count || 0)
+  const cleanOrLowRiskCount = (stats?.clean_count ?? 0) + (stats?.low_risk_count ?? 0)
   
+  const FILTER_PILLS = ['ALL', 'MALICIOUS', 'SUSPICIOUS', 'LOW RISK', 'CLEAN', 'IMPERSONATION', 'FAILED']
+
   const filteredScans = recentScans.filter(scan => {
     const matchesSearch = 
       (scan.file_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
       (scan.package_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
       (scan.scan_id || '').toLowerCase().includes(searchQuery.toLowerCase())
     
-    if (verdictFilter === 'ALL') return matchesSearch
-    return matchesSearch && String(scan.verdict).toUpperCase() === verdictFilter
+    if (!matchesSearch) return false
+
+    if (verdictFilter === 'ALL') return true
+    if (verdictFilter === 'FAILED') return scan.status === 'failed'
+    if (verdictFilter === 'IMPERSONATION') return scan.impersonation_verdict === 'IMPERSONATION'
+    return String(scan.verdict).toUpperCase() === verdictFilter
   })
 
   return (
@@ -76,30 +84,28 @@ export default function Dashboard() {
         marginBottom: '24px',
       }}>
         <StatCard
-          label="Total Scans Processed"
+          label="Total Scans"
           value={stats?.total_scans}
           icon={Activity}
-          subtitle="Lifetime static & dynamic scans"
         />
         <StatCard
-          label="Malicious APKs"
-          value={stats?.malicious_count}
+          label="Flagged"
+          value={flaggedCount}
           icon={AlertTriangle}
-          accent='var(--danger)'
-          subtitle="Flagged by ML & threat signals"
+          accent={flaggedCount > 0 ? 'var(--danger)' : undefined}
+          subtitle="Malicious or suspicious"
         />
         <StatCard
-          label="Detection Accuracy Rate"
-          value={`${stats?.detection_rate_percent}%`}
+          label="Clean or Low Risk"
+          value={cleanOrLowRiskCount}
           icon={Shield}
-          accent='var(--warning)'
-          subtitle="Combined signal confidence"
+          accent={cleanOrLowRiskCount > 0 ? 'var(--success)' : undefined}
         />
         <StatCard
-          label="Tracked Signature Certs"
-          value={stats?.certificates_tracked}
+          label="Known Bank Certificates"
+          value={stats?.trusted_certs_in_db}
           icon={Database}
-          subtitle="Known developer signatures"
+          subtitle="Verified Indian bank signers"
         />
       </div>
 
@@ -171,7 +177,7 @@ export default function Dashboard() {
 
             {/* Verdict Filter Pills */}
             <div style={{ display: 'flex', gap: '2px', background: 'var(--bg-primary)', padding: '2px', border: '1px solid var(--border-subtle)' }}>
-              {['ALL', 'MALICIOUS', 'SUSPICIOUS', 'CLEAN'].map(v => (
+              {FILTER_PILLS.map(v => (
                 <button
                   key={v}
                   onClick={() => setVerdictFilter(v)}
@@ -210,7 +216,7 @@ export default function Dashboard() {
         }}>
           <thead>
             <tr>
-              {['File Name', 'Package Name', 'Verdict', 'Risk Score', 'Scanned At'].map(h => (
+              {['File Name', 'Package Name', 'Verdict', 'Brand check', 'Risk Score', 'Scanned At'].map(h => (
                 <th key={h} style={{
                   padding: '10px 16px',
                   textAlign: 'left',
@@ -230,15 +236,55 @@ export default function Dashboard() {
           <tbody>
             {filteredScans.length === 0 ? (
               <tr>
-                <td colSpan={5} style={{
-                  padding: '32px 16px',
-                  color: 'var(--text-placeholder)',
-                  textAlign: 'center',
-                  fontSize: '13px',
-                }}>
-                  {recentScans.length === 0
-                    ? 'No scans processed yet. Submit an APK to launch static and dynamic analysis.'
-                    : 'No scans match your current filter criteria.'}
+                <td colSpan={6} style={{ padding: 0 }}>
+                  {(stats?.total_scans ?? 0) === 0 ? (
+                    <div style={{
+                      padding: '48px 24px',
+                      textAlign: 'center',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: '10px',
+                    }}>
+                      <div style={{
+                        fontSize: '16px',
+                        fontWeight: 600,
+                        color: 'var(--text-primary)',
+                      }}>
+                        No scans yet
+                      </div>
+                      <div style={{
+                        fontSize: '13px',
+                        color: 'var(--text-secondary)',
+                      }}>
+                        Upload an APK to see the verdict, signals and extracted indicators.
+                      </div>
+                      <button
+                        className="btn-carbon"
+                        onClick={() => navigate('/scan')}
+                        style={{
+                          marginTop: '8px',
+                          fontSize: '13px',
+                          padding: '8px 16px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                        }}
+                      >
+                        <Plus size={14} />
+                        Scan an APK
+                      </button>
+                    </div>
+                  ) : (
+                    <div style={{
+                      padding: '32px 16px',
+                      color: 'var(--text-placeholder)',
+                      textAlign: 'center',
+                      fontSize: '13px',
+                    }}>
+                      No scans match your current filter criteria.
+                    </div>
+                  )}
                 </td>
               </tr>
             ) : (
@@ -254,17 +300,105 @@ export default function Dashboard() {
                     fontWeight: 500,
                     color: 'var(--text-primary)',
                   }}>
-                    {scan.file_name || '—'}
+                    {scan.file_name || '-'}
                   </td>
                   <td className="mono" style={{
                     padding: '12px 16px',
                     color: 'var(--text-secondary)',
                     fontSize: '12px',
                   }}>
-                    {scan.package_name || '—'}
+                    {scan.package_name || '-'}
                   </td>
                   <td style={{ padding: '12px 16px' }}>
-                    <VerdictBadge verdict={scan.verdict} />
+                    {scan.verdict ? (
+                      <VerdictBadge verdict={scan.verdict} />
+                    ) : (
+                      <span style={{
+                        background: 'var(--bg-elevated)',
+                        color: 'var(--text-secondary)',
+                        padding: '3px 8px',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        letterSpacing: '0.4px',
+                        textTransform: 'uppercase',
+                        borderRadius: '0px',
+                        fontFamily: 'IBM Plex Sans, sans-serif',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        userSelect: 'none',
+                      }}>
+                        {String(scan.status || 'PENDING').toUpperCase()}
+                      </span>
+                    )}
+                  </td>
+                  <td style={{ padding: '12px 16px' }}>
+                    {scan.impersonation_verdict === 'IMPERSONATION' ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', alignItems: 'flex-start' }}>
+                        <span style={{
+                          background: scan.impersonation_strong ? 'var(--danger)' : 'var(--warning)',
+                          color: scan.impersonation_strong ? '#ffffff' : '#161616',
+                          padding: '3px 8px',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          letterSpacing: '0.4px',
+                          textTransform: 'uppercase',
+                          borderRadius: '0px',
+                          fontFamily: 'IBM Plex Sans, sans-serif',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          userSelect: 'none',
+                        }}>
+                          {scan.impersonation_strong ? 'IMPERSONATION' : 'POSSIBLE'}
+                        </span>
+                        {scan.impersonation_brand && (
+                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                            {scan.impersonation_brand}
+                          </span>
+                        )}
+                      </div>
+                    ) : scan.impersonation_verdict === 'UNVERIFIED_CLAIM' ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', alignItems: 'flex-start' }}>
+                        <span style={{
+                          border: '1px solid var(--border)',
+                          background: 'transparent',
+                          color: 'var(--text-secondary)',
+                          padding: '2px 7px',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          letterSpacing: '0.4px',
+                          textTransform: 'uppercase',
+                          borderRadius: '0px',
+                          fontFamily: 'IBM Plex Sans, sans-serif',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          userSelect: 'none',
+                        }}>
+                          UNVERIFIED
+                        </span>
+                        {scan.impersonation_brand && (
+                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                            {scan.impersonation_brand}
+                          </span>
+                        )}
+                      </div>
+                    ) : scan.impersonation_verdict === 'GENUINE' ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', alignItems: 'flex-start' }}>
+                        <span style={{
+                          fontSize: '12px',
+                          color: 'var(--success)',
+                          fontWeight: 600,
+                        }}>
+                          Genuine
+                        </span>
+                        {scan.impersonation_brand && (
+                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                            {scan.impersonation_brand}
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <span style={{ color: 'var(--text-placeholder)', fontSize: '13px' }}>-</span>
+                    )}
                   </td>
                   <td className="mono" style={{
                     padding: '12px 16px',
@@ -272,7 +406,7 @@ export default function Dashboard() {
                     fontWeight: 600,
                     color: (scan.risk_score || 0) >= 70 ? 'var(--danger)' : (scan.risk_score || 0) >= 40 ? 'var(--warning)' : 'var(--success)',
                   }}>
-                    {scan.risk_score ?? '—'}
+                    {scan.risk_score ?? '-'}
                   </td>
                   <td style={{
                     padding: '12px 16px',
