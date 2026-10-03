@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, AlertTriangle, Shield,
@@ -7,6 +7,9 @@ import {
 import { api } from '../api/client'
 import VerdictBadge from '../components/VerdictBadge'
 import RiskScore from '../components/RiskScore'
+import ImpersonationBanner from '../components/ImpersonationBanner'
+import TakedownPanel from '../components/TakedownPanel'
+import VirusTotalPanel from '../components/VirusTotalPanel'
 
 export default function ScanResult() {
   const { scanId } = useParams()
@@ -15,6 +18,9 @@ export default function ScanResult() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [copiedKey, setCopiedKey] = useState(null)
+  const [pollTimeout, setPollTimeout] = useState(false)
+  const pollRef = useRef(null)
+  const startTimeRef = useRef(null)
 
   const copyToClipboard = (text, key) => {
     if (!text) return
@@ -35,11 +41,79 @@ export default function ScanResult() {
   }
 
   useEffect(() => {
+    setLoading(true)
+    setError(null)
+    setPollTimeout(false)
+    startTimeRef.current = Date.now()
+
     api.getScanResult(scanId)
       .then(res => setResult(res.data.data))
-      .catch(err => setError(err.message))
+      .catch(err => setError(err.friendlyMessage || err.message))
       .finally(() => setLoading(false))
+
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current)
+        pollRef.current = null
+      }
+    }
   }, [scanId])
+
+  useEffect(() => {
+    if (!result) return
+    const isPendingOrProcessing = result.status === 'pending' || result.status === 'processing'
+
+    if (isPendingOrProcessing) {
+      if (!startTimeRef.current) {
+        startTimeRef.current = Date.now()
+      }
+
+      if (!pollRef.current) {
+        pollRef.current = setInterval(async () => {
+          if (Date.now() - startTimeRef.current > 360000) {
+            if (pollRef.current) {
+              clearInterval(pollRef.current)
+              pollRef.current = null
+            }
+            setPollTimeout(true)
+            return
+          }
+
+          try {
+            const res = await api.getScanResult(scanId)
+            const data = res.data.data
+            if (data) {
+              setResult(data)
+              if (data.status === 'complete' || data.status === 'failed') {
+                if (pollRef.current) {
+                  clearInterval(pollRef.current)
+                  pollRef.current = null
+                }
+              }
+            }
+          } catch (err) {
+            if (pollRef.current) {
+              clearInterval(pollRef.current)
+              pollRef.current = null
+            }
+            setError(err.friendlyMessage || err.message)
+          }
+        }, 5000)
+      }
+    } else {
+      if (pollRef.current) {
+        clearInterval(pollRef.current)
+        pollRef.current = null
+      }
+    }
+
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current)
+        pollRef.current = null
+      }
+    }
+  }, [result?.status, scanId])
 
   if (loading) return (
     <div style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
@@ -59,6 +133,100 @@ export default function ScanResult() {
     </div>
   )
 
+  if (pollTimeout) {
+    return (
+      <div style={{
+        background: 'var(--bg-secondary)',
+        border: '1px solid var(--border)',
+        padding: '24px',
+        color: 'var(--text-primary)',
+        maxWidth: '680px',
+      }}>
+        <div style={{ fontSize: '16px', fontWeight: 600, marginBottom: '8px' }}>
+          Scan in progress
+        </div>
+        <div style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+          This is taking longer than expected. You can leave this page and check the scan from the dashboard later.
+        </div>
+        <button
+          className="btn-carbon-secondary"
+          onClick={() => navigate('/')}
+          style={{ fontSize: '13px' }}
+        >
+          Back to Dashboard
+        </button>
+      </div>
+    )
+  }
+
+  if (result.status === 'failed') {
+    return (
+      <div style={{
+        background: 'var(--bg-secondary)',
+        border: '1px solid var(--border)',
+        borderLeft: '4px solid var(--danger)',
+        padding: '24px',
+        maxWidth: '680px',
+      }}>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          marginBottom: '12px',
+        }}>
+          <AlertTriangle size={20} color="var(--danger)" />
+          <h2 style={{
+            fontSize: '18px',
+            fontWeight: 600,
+            color: 'var(--text-primary)',
+            margin: 0,
+          }}>
+            Analysis failed
+          </h2>
+        </div>
+
+        {result.file_name && (
+          <div style={{
+            fontSize: '13px',
+            color: 'var(--text-secondary)',
+            marginBottom: '10px',
+          }}>
+            File: <span className="mono" style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{result.file_name}</span>
+          </div>
+        )}
+
+        <div style={{
+          fontSize: '14px',
+          color: 'var(--text-primary)',
+          marginBottom: '20px',
+          lineHeight: '1.5',
+          background: 'var(--bg-elevated)',
+          padding: '12px 14px',
+          border: '1px solid var(--border)',
+        }}>
+          {result.error_message || 'The scan did not complete.'}
+        </div>
+
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <button
+            className="btn-carbon"
+            onClick={() => navigate('/scan')}
+            style={{ fontSize: '13px', padding: '8px 16px' }}
+          >
+            Scan again
+          </button>
+          <button
+            className="btn-carbon-secondary"
+            onClick={() => navigate('/')}
+            style={{ fontSize: '13px', padding: '8px 16px' }}
+          >
+            Back to dashboard
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   if (result.status === 'pending' || result.status === 'processing') {
     return (
       <div style={{
@@ -73,6 +241,14 @@ export default function ScanResult() {
         <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
           Current status: <span className="mono" style={{ color: 'var(--action-blue)' }}>{result.status}</span>
         </div>
+      </div>
+    )
+  }
+
+  if (result.status !== 'complete') {
+    return (
+      <div style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
+        No report available for this scan (status: {result.status}).
       </div>
     )
   }
@@ -178,6 +354,15 @@ export default function ScanResult() {
 
   const signalsTotal = result?.signals_total ?? 4
 
+  const vtStatus = result?.vt_status || result?.vt_data?.status
+  const getVtNoDataReason = (st) => {
+    if (st === 'disabled') return 'VirusTotal is turned off'
+    if (st === 'not_found') return 'VirusTotal has no record of this file'
+    if (st === 'rate_limited') return 'VirusTotal quota reached'
+    if (st === 'unavailable') return 'VirusTotal could not be reached'
+    return 'No VirusTotal result'
+  }
+
   const confidenceLevel = result?.confidence_level || (
     signalsUsed !== null ? (
       signalsUsed === 0 ? "INSUFFICIENT DATA"
@@ -241,6 +426,9 @@ export default function ScanResult() {
         </div>
       </div>
 
+      {/* Impersonation finding banner */}
+      <ImpersonationBanner impersonation={result.impersonation} />
+
       {/* Top summary row */}
       <div style={{
         display: 'grid',
@@ -261,6 +449,15 @@ export default function ScanResult() {
         }}>
           <RiskScore score={result.risk_score} />
           <VerdictBadge verdict={result.verdict} />
+          {typeof result.risk_floor === 'number' && (
+            <div style={{
+              fontSize: '11px',
+              color: 'var(--text-secondary)',
+              textAlign: 'center',
+            }}>
+              Raised to {result.risk_floor} by the impersonation finding
+            </div>
+          )}
         </div>
 
         {/* File metadata */}
@@ -332,6 +529,9 @@ export default function ScanResult() {
           {summary}
         </div>
       )}
+
+      {/* Takedown evidence pack panel */}
+      {result.status === 'complete' && <TakedownPanel result={result} />}
 
       {/* Signal scores */}
       <div style={{ marginBottom: '24px' }}>
@@ -440,7 +640,7 @@ export default function ScanResult() {
                     color: 'var(--text-placeholder)',
                     lineHeight: '1.4',
                   }}>
-                    {noDataReason}
+                    {key === 'vt_score' ? getVtNoDataReason(vtStatus) : noDataReason}
                   </div>
                 )}
               </div>
@@ -1196,6 +1396,13 @@ export default function ScanResult() {
                 </details>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* VirusTotal Intelligence Panel */}
+        {result.status === 'complete' && (
+          <div style={{ marginTop: '16px' }}>
+            <VirusTotalPanel result={result} />
           </div>
         )}
       </div>

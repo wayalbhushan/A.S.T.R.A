@@ -8,7 +8,7 @@ import hashlib
 import json
 import os
 import uuid
-from flask import Blueprint, current_app, jsonify, request
+from flask import Blueprint, current_app, jsonify, request, Response
 from sqlalchemy import func, select
 from werkzeug.utils import secure_filename
 import structlog
@@ -18,12 +18,43 @@ from app.extensions import db, limiter, redis_client
 from app.models.scan import CertificateRecord, ScanRecord
 from app.tasks.scan_tasks import run_scan
 from app.analysis.cert_lookup import TRUSTED_HASHES
+from app.analysis.takedown import build_takedown_data, is_eligible
+from app.analysis.takedown_pdf import build_takedown_pdf
 from app.version import ENGINE_VERSION
 
 logger = structlog.get_logger()
 api_bp = Blueprint("api", __name__)
 
 ALLOWED_EXTENSION = ".apk"
+STALE_SCAN_SECONDS = int(os.environ.get("STALE_SCAN_SECONDS", 600))
+
+
+def _expire_if_stale(record: ScanRecord) -> bool:
+    """Marks a scan as failed if it has remained pending or processing past STALE_SCAN_SECONDS."""
+    if not record or record.status not in ["pending", "processing"]:
+        return False
+
+    ts = record.updated_at or record.created_at
+    if not ts:
+        return False
+
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+
+    now_utc = datetime.now(timezone.utc)
+    if (now_utc - ts).total_seconds() > STALE_SCAN_SECONDS:
+        try:
+            record.status = "failed"
+            record.error_message = "Scan did not finish (worker stopped). Please re-submit."
+            db.session.commit()
+            logger.info("scan_stale_marked_failed", scan_id=str(record.id))
+            return True
+        except Exception as e:
+            db.session.rollback()
+            logger.error("scan_stale_expire_failed", scan_id=str(record.id), error=str(e))
+            return False
+
+    return False
 
 
 def allowed_file(filename: str) -> bool:
@@ -108,6 +139,10 @@ def submit_scan():
             .order_by(ScanRecord.created_at.desc())
         ).scalars().first()
 
+        if existing_record and existing_record.status in ["pending", "processing"]:
+            if _expire_if_stale(existing_record):
+                existing_record = None
+
         if existing_record and existing_record.engine_version == ENGINE_VERSION:
             existing_rank = SCAN_TYPE_RANKS.get(existing_record.scan_type, 0)
 
@@ -163,7 +198,7 @@ def submit_scan():
     db.session.commit()
 
     # Enqueue task to Celery
-    run_scan.delay(scan_id, apk_path, scan_type)
+    run_scan.delay(scan_id, apk_path, scan_type, force)
 
     logger.info("scan_submitted", scan_id=scan_id, filename=file.filename, scan_type=scan_type)
 
@@ -181,6 +216,7 @@ def submit_scan():
 
 
 @api_bp.route("/scan/<scan_id>/status", methods=["GET"])
+@limiter.limit("600 per hour")
 @require_api_key
 def get_scan_status(scan_id: str):
     """Retrieves the status of an ongoing or completed scan.
@@ -197,7 +233,8 @@ def get_scan_status(scan_id: str):
                 "scan_id": scan_id,
                 "status": data.get("status", "complete"),
                 "verdict": data.get("verdict"),
-                "risk_score": data.get("risk_score")
+                "risk_score": data.get("risk_score"),
+                "error_message": data.get("error_message")
             }
         })
 
@@ -220,13 +257,16 @@ def get_scan_status(scan_id: str):
             "code": 404
         }), 404
 
+    _expire_if_stale(record)
+
     return jsonify({
         "status": "success",
         "data": {
             "scan_id": scan_id,
             "status": record.status,
             "verdict": record.verdict,
-            "risk_score": record.risk_score
+            "risk_score": record.risk_score,
+            "error_message": record.error_message
         }
     })
 
@@ -265,12 +305,15 @@ def get_scan_result(scan_id: str):
             "code": 404
         }), 404
 
+    _expire_if_stale(record)
+
     if record.status in ["pending", "processing"]:
         return jsonify({
             "status": "success",
             "data": {
                 "scan_id": scan_id,
                 "status": record.status,
+                "error_message": record.error_message,
                 "message": "Scan in progress. Try again shortly."
             }
         })
@@ -285,6 +328,11 @@ def get_scan_result(scan_id: str):
             "package_name": record.package_name,
             "risk_score": record.risk_score,
             "verdict": record.verdict,
+            "threat_summary": record.threat_summary,
+            "confidence_level": record.confidence_level,
+            "signals_used": record.signals_used,
+            "signals_total": 4,
+            "error_message": record.error_message,
             "ml_class": record.ml_class,
             "ml_confidence": record.ml_confidence,
             "static_ml_class": record.static_ml_class,
@@ -300,6 +348,8 @@ def get_scan_result(scan_id: str):
             "model_agreement": record.model_agreement,
             "signature_verdict": record.signature_verdict,
             "vt_detection_ratio": record.vt_detection_ratio,
+            "vt_intel": (record.vt_data or {}).get("intel"),
+            "vt_status": (record.vt_data or {}).get("status"),
             "androguard_data": record.androguard_data,
             "ioc_summary": record.ioc_summary,
             "extracted_iocs": (record.androguard_data or {}).get(
@@ -308,10 +358,121 @@ def get_scan_result(scan_id: str):
             "vt_data": record.vt_data,
             "sandbox_data": record.sandbox_data,
             "ml_explanation": record.ml_explanation,
+            "impersonation": record.impersonation,
+            "risk_floor": record.risk_floor,
             "created_at": record.created_at.isoformat(),
             "completed_at": record.completed_at.isoformat() if record.completed_at else None
         }
     })
+
+
+def _get_eligible_takedown_scan(scan_id: str):
+    """Validates scan UUID, checks record existence, completeness, and eligibility.
+    Returns (scan_dict, None) on success, or (None, (json_response, status_code)) on failure.
+    """
+    try:
+        scan_uuid = uuid.UUID(scan_id)
+    except ValueError:
+        return None, (jsonify({
+            "status": "error",
+            "message": "Invalid scan ID format",
+            "code": 400
+        }), 400)
+
+    stmt = select(ScanRecord).where(ScanRecord.id == scan_uuid)
+    record = db.session.execute(stmt).scalar_one_or_none()
+
+    if not record:
+        return None, (jsonify({
+            "status": "error",
+            "message": "Scan not found",
+            "code": 404
+        }), 404)
+
+    _expire_if_stale(record)
+
+    if record.status != "complete":
+        return None, (jsonify({
+            "status": "error",
+            "message": "Scan is not complete.",
+            "code": 409
+        }), 409)
+
+    scan_dict = {
+        "id": str(record.id),
+        "file_name": record.file_name,
+        "file_hash": record.file_hash,
+        "package_name": record.package_name,
+        "verdict": record.verdict,
+        "risk_score": record.risk_score,
+        "risk_floor": record.risk_floor,
+        "confidence_level": record.confidence_level,
+        "threat_summary": record.threat_summary,
+        "signals_used": record.signals_used,
+        "signal_scores": record.signal_scores,
+        "signature_verdict": record.signature_verdict,
+        "vt_detection_ratio": record.vt_detection_ratio,
+        "impersonation": record.impersonation,
+        "androguard_data": record.androguard_data,
+        "engine_version": record.engine_version,
+        "completed_at": record.completed_at.isoformat() if record.completed_at else None,
+    }
+
+    eligible, reason = is_eligible(scan_dict)
+    if not eligible:
+        return None, (jsonify({
+            "status": "error",
+            "message": reason,
+            "code": 409
+        }), 409)
+
+    return scan_dict, None
+
+
+@api_bp.route("/scan/<scan_id>/takedown", methods=["GET"])
+@limiter.limit("30 per hour")
+@require_api_key
+def get_scan_takedown(scan_id: str):
+    """Generates a structured takedown evidence pack for a completed scan."""
+    scan_dict, err = _get_eligible_takedown_scan(scan_id)
+    if err:
+        return err
+
+    takedown_data = build_takedown_data(scan_dict)
+    return jsonify({
+        "status": "success",
+        "data": takedown_data
+    }), 200
+
+
+@api_bp.route("/scan/<scan_id>/takedown/pdf", methods=["GET"])
+@limiter.limit("20 per hour")
+@require_api_key
+def get_scan_takedown_pdf(scan_id: str):
+    """Generates a downloadable takedown evidence pack PDF for a completed scan."""
+    scan_dict, err = _get_eligible_takedown_scan(scan_id)
+    if err:
+        return err
+
+    try:
+        takedown_data = build_takedown_data(scan_dict)
+        pdf_bytes = build_takedown_pdf(takedown_data, compress=True)
+    except Exception as e:
+        logger.error("takedown_pdf_failed", scan_id=scan_id, error=str(e))
+        return jsonify({
+            "status": "error",
+            "message": "Could not generate the PDF.",
+            "code": 500
+        }), 500
+
+    short_id = scan_id[:8]
+    filename = f"astra-takedown-{short_id}.pdf"
+    logger.info("takedown_pdf_generated", scan_id=scan_id, byte_size=len(pdf_bytes))
+
+    response = Response(pdf_bytes, mimetype="application/pdf")
+    response.headers["Content-Disposition"] = f"attachment; filename={filename}"
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @api_bp.route("/certificate/<cert_hash>/pivot", methods=["GET"])
@@ -416,12 +577,44 @@ def platform_stats():
     malicious_count = db.session.execute(select(func.count()).select_from(ScanRecord).where(ScanRecord.verdict == "MALICIOUS")).scalar() or 0
     suspicious_count = db.session.execute(select(func.count()).select_from(ScanRecord).where(ScanRecord.verdict == "SUSPICIOUS")).scalar() or 0
     clean_count = db.session.execute(select(func.count()).select_from(ScanRecord).where(ScanRecord.verdict == "CLEAN")).scalar() or 0
+    low_risk_count = db.session.execute(select(func.count()).select_from(ScanRecord).where(ScanRecord.verdict == "LOW RISK")).scalar() or 0
     cert_count = db.session.execute(select(func.count()).select_from(CertificateRecord)).scalar() or 0
 
     recent_stmt = select(ScanRecord).order_by(ScanRecord.created_at.desc()).limit(10)
     recent = db.session.execute(recent_stmt).scalars().all()
 
     detection_rate = round((malicious_count + suspicious_count) / total_scans * 100, 1) if total_scans > 0 else 0.0
+
+    now_utc = datetime.now(timezone.utc)
+    recent_scans = []
+    for r in recent:
+        status = r.status
+        if status in ["pending", "processing"]:
+            ts = r.updated_at or r.created_at
+            if ts:
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+                if (now_utc - ts).total_seconds() > STALE_SCAN_SECONDS:
+                    status = "failed"
+        imp = r.impersonation or {}
+        imp_verdict = imp.get("verdict")
+        imp_corr = set((imp.get("evidence") or {}).get("corroboration") or [])
+        imp_strong = (
+            imp_verdict == "IMPERSONATION"
+            and bool("exfil" in imp_corr or "other_brand_cert" in imp_corr)
+        )
+        recent_scans.append({
+            "scan_id": str(r.id),
+            "file_name": r.file_name,
+            "package_name": r.package_name,
+            "verdict": r.verdict,
+            "risk_score": r.risk_score,
+            "status": status,
+            "scanned_at": r.created_at.isoformat(),
+            "impersonation_verdict": imp_verdict,
+            "impersonation_brand": imp.get("brand_name"),
+            "impersonation_strong": imp_strong,
+        })
 
     return jsonify({
         "status": "success",
@@ -430,20 +623,11 @@ def platform_stats():
             "malicious_count": malicious_count,
             "suspicious_count": suspicious_count,
             "clean_count": clean_count,
+            "low_risk_count": low_risk_count,
             "detection_rate_percent": detection_rate,
             "certificates_tracked": cert_count,
             "trusted_certs_in_db": len(TRUSTED_HASHES),
-            "recent_scans": [
-                {
-                    "scan_id": str(r.id),
-                    "file_name": r.file_name,
-                    "package_name": r.package_name,
-                    "verdict": r.verdict,
-                    "risk_score": r.risk_score,
-                    "scanned_at": r.created_at.isoformat()
-                }
-                for r in recent
-            ]
+            "recent_scans": recent_scans
         }
     })
 
