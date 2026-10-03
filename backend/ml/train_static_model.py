@@ -3,15 +3,19 @@ ASTRA Static ML Model Training Pipeline
 Trains a RandomForestClassifier on TUANDROMD permissions and API features.
 """
 
+from datetime import datetime, timezone
 import json
 from pathlib import Path
+import sys
 import joblib
 import pandas as pd
+import sklearn
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, precision_recall_fscore_support
 import shap
+
 
 def main():
     # 1. Resolve CSV path and load data
@@ -25,6 +29,29 @@ def main():
     print("\nClass distribution in raw data:")
     print(df["Label"].value_counts())
     
+    # Correct four corrupted TUANDROMD column names caused by an earlier global
+    # string replacement of 'no' with 'goodware' (e.g. KnownLocation -> KgoodwarewnLocation).
+    RENAME = {
+        "Landroid/location/LocationManager;->getLastKgoodwarewnLocation":
+            "Landroid/location/LocationManager;->getLastKnownLocation",
+        "BIND_goodwareTIFICATION_LISTENER_SERVICE":
+            "BIND_NOTIFICATION_LISTENER_SERVICE",
+        "DIAGgoodwareSTIC": "DIAGNOSTIC",
+        "DOWNLOAD_WITHOUT_goodwareTIFICATION": "DOWNLOAD_WITHOUT_NOTIFICATION",
+    }
+    missing_rename_keys = [k for k in RENAME if k not in df.columns]
+    if missing_rename_keys:
+        raise ValueError(f"Corrupted columns missing from dataset: {missing_rename_keys}")
+
+    df.rename(columns=RENAME, inplace=True)
+    print("\nRenamed columns:")
+    for old_name, new_name in RENAME.items():
+        print(f"  {old_name} -> {new_name}")
+
+    goodware_named_cols = [col for col in df.columns if "goodware" in col.lower()]
+    if goodware_named_cols:
+        raise ValueError(f"Found column names containing 'goodware': {goodware_named_cols}")
+
     # 2. Preprocess: Encode Label column (malware=1, goodware=0)
     df["Label"] = df["Label"].map({"malware": 1, "goodware": 0})
     X = df.drop(columns=["Label"])
@@ -82,6 +109,13 @@ def main():
     print(f"Precision: {precision:.4f}")
     print(f"Recall: {recall:.4f}")
     print(f"F1-Score: {f1:.4f}")
+
+    precision_arr, recall_arr, fscore_arr, _ = precision_recall_fscore_support(
+        y_test, y_pred, average=None
+    )
+    goodware_f1 = float(fscore_arr[0])
+    malware_f1 = float(fscore_arr[1])
+    test_accuracy = float(acc)
     
     # 8. Save artifacts
     model_path = base_dir / "static_model.joblib"
@@ -118,6 +152,23 @@ def main():
     with open(shap_meta_path, "w") as f:
         json.dump(shap_meta, f, indent=2)
     print(f"Saved static SHAP explainability metadata to {shap_meta_path}")
+
+    # Save static_model_meta.json
+    meta = {
+        "sklearn_version": str(sklearn.__version__),
+        "python_version": str(sys.version),
+        "trained_at": datetime.now(timezone.utc).isoformat(),
+        "n_samples": int(len(df)),
+        "n_features": int(len(feature_names)),
+        "test_accuracy": round(test_accuracy, 4),
+        "malware_f1": round(malware_f1, 4),
+        "goodware_f1": round(goodware_f1, 4),
+        "renamed_columns": RENAME,
+    }
+    meta_path = base_dir / "static_model_meta.json"
+    with open(meta_path, "w") as f:
+        json.dump(meta, f, indent=2)
+    print(f"Saved static model metadata to {meta_path}")
     
     # 10. Print final summary
     print("\n=== Final Static Training Summary ===")
@@ -125,6 +176,7 @@ def main():
     print(f"Model Saved Path: {model_path}")
     print(f"Scaler Saved Path: {scaler_path}")
     print(f"Feature Count: {len(feature_names)}")
+
 
 if __name__ == "__main__":
     main()

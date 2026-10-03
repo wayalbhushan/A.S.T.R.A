@@ -24,30 +24,13 @@ STATIC_MODEL_PATH = BASE_DIR / "ml" / "static_model.joblib"
 STATIC_SCALER_PATH = BASE_DIR / "ml" / "static_scaler.joblib"
 STATIC_FEATURE_NAMES_PATH = BASE_DIR / "ml" / "static_feature_names.json"
 STATIC_SHAP_META_PATH = BASE_DIR / "ml" / "static_shap_meta.json"
+STATIC_MODEL_META_PATH = BASE_DIR / "ml" / "static_model_meta.json"
 
-# Check if model files exist on module import (Task 2, Rule 5)
-if not (MODEL_PATH.exists() and SCALER_PATH.exists() and FEATURE_NAMES_PATH.exists() and SHAP_META_PATH.exists()):
-    raise RuntimeError("Model files not found. Run train_model.py first")
-
+# Check static model files exist on module import
 if not (STATIC_MODEL_PATH.exists() and STATIC_SCALER_PATH.exists() and STATIC_FEATURE_NAMES_PATH.exists() and STATIC_SHAP_META_PATH.exists()):
     raise RuntimeError("Static model not found. Run train_static_model.py")
 
-# Load model artifacts globally on startup
-try:
-    model = joblib.load(MODEL_PATH)
-    scaler = joblib.load(SCALER_PATH)
-    with open(FEATURE_NAMES_PATH, "r") as f:
-        feature_names = json.load(f)
-    with open(SHAP_META_PATH, "r") as f:
-        shap_meta = json.load(f)
-        
-    # Initialize TreeExplainer
-    explainer = shap.TreeExplainer(model)
-    logger.info("ML Engine successfully loaded and initialized artifacts.")
-except Exception as e:
-    logger.exception("Failed to initialize ML Engine or load model files", error=str(e))
-    raise RuntimeError(f"Error loading model files: {str(e)}")
-
+# Load static model artifacts globally on startup
 try:
     static_model = joblib.load(STATIC_MODEL_PATH)
     static_scaler = joblib.load(STATIC_SCALER_PATH)
@@ -60,6 +43,61 @@ try:
 except Exception as e:
     logger.exception("Failed to initialize ML Engine or load static model files", error=str(e))
     raise RuntimeError(f"Error loading static model files: {str(e)}")
+
+
+def _check_static_artifact_version():
+    """Validates sklearn version consistency between trained artifact and installed environment."""
+    import sklearn
+    if not STATIC_MODEL_META_PATH.exists():
+        logger.warning("static_model_meta_missing", path=str(STATIC_MODEL_META_PATH))
+        return
+    try:
+        with open(STATIC_MODEL_META_PATH, "r") as f:
+            meta = json.load(f)
+        meta_sklearn = meta.get("sklearn_version")
+        installed_sklearn = sklearn.__version__
+        if meta_sklearn != installed_sklearn:
+            logger.warning(
+                "static_model_version_mismatch",
+                meta_version=meta_sklearn,
+                installed_version=installed_sklearn
+            )
+    except Exception as e:
+        logger.warning("static_model_meta_read_error", error=str(e))
+
+
+_check_static_artifact_version()
+
+# Dynamic model: lazy loaded on first call to predict()
+_dynamic_loaded = False
+model = None
+scaler = None
+feature_names = None
+shap_meta = None
+explainer = None
+
+
+def _load_dynamic():
+    """Lazily loads dynamic model artifacts on first predict() invocation."""
+    global model, scaler, feature_names, shap_meta, explainer, _dynamic_loaded
+    if _dynamic_loaded:
+        return
+    if not (MODEL_PATH.exists() and SCALER_PATH.exists() and FEATURE_NAMES_PATH.exists() and SHAP_META_PATH.exists()):
+        raise RuntimeError("Model files not found. Run train_model.py first")
+    try:
+        model = joblib.load(MODEL_PATH)
+        scaler = joblib.load(SCALER_PATH)
+        with open(FEATURE_NAMES_PATH, "r") as f:
+            feature_names = json.load(f)
+        with open(SHAP_META_PATH, "r") as f:
+            shap_meta = json.load(f)
+        explainer = shap.TreeExplainer(model)
+        _dynamic_loaded = True
+        logger.info("ML Engine successfully loaded dynamic model artifacts.")
+    except Exception as e:
+        logger.exception("Failed to initialize dynamic model artifacts", error=str(e))
+        raise RuntimeError(f"Error loading model files: {str(e)}")
+
 
 # Class mappings
 CLASS_NAMES = {
@@ -86,6 +124,9 @@ def predict(feature_vector: dict) -> dict:
     """
     if not feature_vector:
         raise ValueError("Feature vector cannot be empty")
+
+    if not _dynamic_loaded:
+        _load_dynamic()
 
     # Step a: Build DataFrame with 1 row, filling missing features with 0
     row_dict = {name: float(feature_vector.get(name, 0.0)) for name in feature_names}
@@ -151,6 +192,7 @@ def predict(feature_vector: dict) -> dict:
         "top_features": top_features,
         "all_probabilities": all_probabilities
     }
+
 
 def predict_static(feature_vector: dict) -> dict:
     """Classifies a static binary feature vector of permissions and API class names.
@@ -239,6 +281,7 @@ def predict_static(feature_vector: dict) -> dict:
 
 
 if __name__ == "__main__":
+    _load_dynamic()
     # Test execution with zero vector and arbitrary active syscalls (Task 2, Rule 6)
     test_vector_dyn = {name: 0 for name in feature_names}
     test_vector_dyn["open"] = 100

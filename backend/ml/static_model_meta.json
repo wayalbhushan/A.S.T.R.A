@@ -1,0 +1,16 @@
+{
+  "sklearn_version": "1.4.2",
+  "python_version": "3.11.17 (main, Oct  1 2026, 21:51:14) [GCC 14.2.0]",
+  "trained_at": "2026-10-03T06:16:45.096612+00:00",
+  "n_samples": 4464,
+  "n_features": 241,
+  "test_accuracy": 0.991,
+  "malware_f1": 0.9944,
+  "goodware_f1": 0.9779,
+  "renamed_columns": {
+    "Landroid/location/LocationManager;->getLastKgoodwarewnLocation": "Landroid/location/LocationManager;->getLastKnownLocation",
+    "BIND_goodwareTIFICATION_LISTENER_SERVICE": "BIND_NOTIFICATION_LISTENER_SERVICE",
+    "DIAGgoodwareSTIC": "DIAGNOSTIC",
+    "DOWNLOAD_WITHOUT_goodwareTIFICATION": "DOWNLOAD_WITHOUT_NOTIFICATION"
+  }
+}

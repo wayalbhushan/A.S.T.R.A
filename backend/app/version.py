@@ -1,3 +1,4 @@
 # Bump this whenever scoring, extraction or model logic changes,
 # so older cached results are not reused.
-ENGINE_VERSION = "2"
+# Version 10: static model retrained in the container with corrected feature names.
+ENGINE_VERSION = "10"
