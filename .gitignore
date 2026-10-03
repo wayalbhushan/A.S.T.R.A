@@ -21,3 +21,9 @@ Thumbs.db
 
 # Frontend local env
 frontend/.env.local
+
+# Demo samples and APKs
+backend/demo_samples/*
+!backend/demo_samples/.gitkeep
+*.apk
+

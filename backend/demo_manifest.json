@@ -1,0 +1,49 @@
+{
+  "_note": "Samples live in backend/demo_samples and are never committed. Files that are missing are skipped.",
+  "samples": [
+    {
+      "file": "flappybird2.apk",
+      "required": true,
+      "scan_type": "quick",
+      "expect_verdict": ["MALICIOUS"],
+      "expect_takedown": true,
+      "note": "Real trojan, flagged through VirusTotal detections"
+    },
+    {
+      "file": "KVB_DLITE_BANK.apk",
+      "required": false,
+      "scan_type": "quick",
+      "expect_verdict": ["CLEAN", "LOW RISK"],
+      "expect_impersonation": ["GENUINE"],
+      "expect_takedown": false,
+      "note": "Genuine bank application"
+    },
+    {
+      "file": "Cent_Digi_Pay.apk",
+      "required": true,
+      "scan_type": "quick",
+      "expect_verdict": ["CLEAN", "LOW RISK"],
+      "expect_impersonation": ["UNVERIFIED_CLAIM"],
+      "expect_takedown": false,
+      "note": "Genuine Central Bank app with unverified claim"
+    },
+    {
+      "file": "ASTRA_DEMO_FIXTURE_sbi_kyc.apk",
+      "required": true,
+      "scan_type": "quick",
+      "expect_verdict": ["MALICIOUS"],
+      "expect_impersonation": ["IMPERSONATION"],
+      "expect_takedown": true,
+      "note": "Malicious banking fixture impersonating SBI"
+    },
+    {
+      "file": "YONO_SBI.apk",
+      "required": true,
+      "scan_type": "quick",
+      "expect_verdict": ["CLEAN", "LOW RISK"],
+      "expect_impersonation": ["GENUINE"],
+      "expect_takedown": false,
+      "note": "Real YONO SBI app, certificate registered"
+    }
+  ]
+}
